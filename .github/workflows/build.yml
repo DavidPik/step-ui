@@ -25,7 +25,7 @@ jobs:
           docker build \
             -f backend/Dockerfile \
             -t ghcr.io/davidpik/step-ui-backend:latest \
-            backend
+            .
 
       # -----------------------------
       # Build FRONTEND (Next.js)
@@ -35,7 +35,7 @@ jobs:
           docker build \
             -f frontend/Dockerfile \
             -t ghcr.io/davidpik/step-ui-frontend:latest \
-            frontend
+            .
 
       # -----------------------------
       # Login to GHCR
