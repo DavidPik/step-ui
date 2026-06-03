@@ -24,7 +24,7 @@ jobs:
         run: |
           docker build \
             -f backend/Dockerfile \
-            -t ghcr.io/${{ github.actor }}/step-ui-backend:latest \
+            -t ghcr.io/davidpik/step-ui-backend:latest \
             backend
 
       # -----------------------------
@@ -34,7 +34,7 @@ jobs:
         run: |
           docker build \
             -f frontend/Dockerfile \
-            -t ghcr.io/${{ github.actor }}/step-ui-frontend:latest \
+            -t ghcr.io/davidpik/step-ui-frontend:latest \
             frontend
 
       # -----------------------------
