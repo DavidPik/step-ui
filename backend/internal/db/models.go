@@ -38,6 +38,9 @@ type Certificate struct {
     NotBefore   time.Time `json:"not_before"`
     NotAfter    time.Time `json:"not_after"`
     CreatedAt   time.Time `json:"created_at"`
+    CertificatePEM  string `gorm:"type:longtext"`
+    PrivateKeyPEM   string `gorm:"type:longtext"`
+    CAChainPEM      string `gorm:"type:longtext"`
 }
 
 // ------------------------------------------------------------
