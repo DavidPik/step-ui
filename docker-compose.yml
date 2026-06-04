@@ -1,30 +1,74 @@
+version: "3.9"
+
 services:
+  # ----------------------------------------------------------
+  # Step-CA (certificate authority)
+  # ----------------------------------------------------------
+  stepca:
+    image: smallstep/step-ca:latest
+    container_name: stepui-stepca
+    restart: unless-stopped
+    environment:
+      # Tyto hodnoty doplníš podle své konfigurace
+      STEPPATH: /home/step
+      STEP_CA_PASSWORD: ${STEP_CA_PASSWORD}
+    volumes:
+      - stepca_data:/home/step
+    ports:
+      - "9000:9000"   # API
+      - "9443:9443"   # HTTPS API
+
+  # ----------------------------------------------------------
+  # Backend (Go API)
+  # ----------------------------------------------------------
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    container_name: stepui-backend
+    restart: unless-stopped
+    environment:
+      # DB connection
+      DB_HOST: mariadb
+      DB_PORT: 3306
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+
+      # Step-CA connection
+      CA_URL: ${CA_URL}
+      CA_FINGERPRINT: ${CA_FINGERPRINT}
+      CA_PROVISIONER: ${CA_PROVISIONER}
+      CA_PROVISIONER_PASSWORD: ${CA_PROVISIONER_PASSWORD}
+
+      # ACME directories (optional)
+      ACME_DIRECTORIES: ${ACME_DIRECTORIES}
+
+      # Backend port
+      PORT: 8080
+    depends_on:
+      - stepca
     ports:
       - "8080:8080"
-    environment:
-      - CA_URL=${CA_URL}
-      - CA_ROOT_FINGERPRINT=${CA_ROOT_FINGERPRINT:-}
-      - PROVISIONER_NAME=${PROVISIONER_NAME}
-      - PROVISIONER_PASSWORD=${PROVISIONER_PASSWORD}
-      - DB_PATH=/app/data/certs.db
-      - PORT=8080
-      - STEPPATH=/tmp/step-nonexistent
-    volumes:
-      - ./data:/app/data
-    restart: unless-stopped
 
+  # ----------------------------------------------------------
+  # Frontend (Next.js)
+  # ----------------------------------------------------------
   frontend:
-    build: ./frontend
-    ports:
-      - "3000:3000"
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    container_name: stepui-frontend
+    restart: unless-stopped
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:8080
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     depends_on:
       - backend
-    restart: unless-stopped
+    ports:
+      - "3000:3000"
 
+# ------------------------------------------------------------
+# Volumes
+# ------------------------------------------------------------
 volumes:
-  data:
-    driver: local
+  stepca_data:
