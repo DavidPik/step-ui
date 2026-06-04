@@ -274,7 +274,7 @@ func DownloadCertificatePackage(database *db.Database) gin.HandlerFunc {
 
         client := step.NewClientFromSettings(settings)
 
-        resp := step.CertificateResponse{
+        resp := step.certificateResponse{
             Certificate: cert.CertificatePEM,
             PrivateKey:  cert.PrivateKeyPEM,
             CABundle:    cert.CAChainPEM,
