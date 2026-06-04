@@ -43,7 +43,6 @@ func NewDatabase() *Database {
         log.Fatalf("Failed to migrate database schema: %v", err)
     }
 
-    // Ensure default CA settings exist
     ensureDefaultCASettings(db)
 
     return &Database{DB: db}
@@ -95,14 +94,6 @@ func (d *Database) UpdateCASettings(settings *CASettings) error {
     return d.DB.Save(settings).Error
 }
 
-func (d *Database) CreateCASettings(settings *CASettings) error {
-    return d.DB.Create(settings).Error
-}
-
-func (d *Database) DeleteCASettings(id uint) error {
-    return d.DB.Delete(&CASettings{}, id).Error
-}
-
 // ------------------------------------------------------------
 // CERTIFICATES CRUD
 // ------------------------------------------------------------
@@ -111,7 +102,7 @@ func (d *Database) CreateCertificate(cert *Certificate) error {
     return d.DB.Create(cert).Error
 }
 
-func (d *Database) GetCertificate(id uint) (*Certificate, error) {
+func (d *Database) GetCertificateByID(id string) (*Certificate, error) {
     var cert Certificate
     if err := d.DB.First(&cert, id).Error; err != nil {
         return nil, err
@@ -127,10 +118,6 @@ func (d *Database) ListCertificates() ([]Certificate, error) {
     return certs, nil
 }
 
-func (d *Database) DeleteCertificate(id uint) error {
-    return d.DB.Delete(&Certificate{}, id).Error
-}
-
 // ------------------------------------------------------------
 // AUDIT LOG
 // ------------------------------------------------------------
@@ -139,7 +126,6 @@ func (d *Database) LogAuditEvent(event *AuditEvent) error {
     return d.DB.Create(event).Error
 }
 
-// Helper: Query audit events with filters
 func (d *Database) QueryAuditEvents(
     from, to *time.Time,
     action, user string,
