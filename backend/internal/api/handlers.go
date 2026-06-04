@@ -2,6 +2,8 @@ package handlers
 
 import (
     "net/http"
+    "strings"
+    "time"
 
     "github.com/gin-gonic/gin"
 
@@ -36,6 +38,13 @@ func UpdateCASettings(database *db.Database) gin.HandlerFunc {
             c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update CA settings"})
             return
         }
+
+        // Audit log
+        _ = database.LogAuditEvent(&db.AuditEvent{
+            User:    "system",
+            Action:  "settings_updated",
+            Details: "CA settings updated",
+        })
 
         c.JSON(http.StatusOK, gin.H{"status": "updated"})
     }
@@ -90,6 +99,13 @@ func SelectProvisioner(database *db.Database) gin.HandlerFunc {
             return
         }
 
+        // Audit log
+        _ = database.LogAuditEvent(&db.AuditEvent{
+            User:    "system",
+            Action:  "provisioner_selected",
+            Details: "Provisioner: " + input.Name,
+        })
+
         c.JSON(http.StatusOK, gin.H{"status": "provisioner selected"})
     }
 }
@@ -120,6 +136,25 @@ func IssueCertificate(database *db.Database) gin.HandlerFunc {
             c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
             return
         }
+
+        // Parse certificate for metadata
+        certMeta, err := step.ParseCertificateMetadata(resp.Certificate)
+        if err == nil {
+            _ = database.CreateCertificate(&db.Certificate{
+                CommonName: req.CommonName,
+                DNSNames:   strings.Join(req.DNSNames, ","),
+                Serial:     certMeta.Serial,
+                NotBefore:  certMeta.NotBefore,
+                NotAfter:   certMeta.NotAfter,
+            })
+        }
+
+        // Audit log
+        _ = database.LogAuditEvent(&db.AuditEvent{
+            User:    "system",
+            Action:  "certificate_issued",
+            Details: "CN=" + req.CommonName,
+        })
 
         // Build ZIP package
         zipBytes, err := client.BuildCertificatePackage(req.CommonName, resp)
@@ -159,6 +194,13 @@ func RevokeCertificate(database *db.Database) gin.HandlerFunc {
             return
         }
 
+        // Audit log
+        _ = database.LogAuditEvent(&db.AuditEvent{
+            User:    "system",
+            Action:  "certificate_revoked",
+            Details: "Serial=" + input.Serial,
+        })
+
         c.JSON(http.StatusOK, gin.H{"status": "revoked"})
     }
 }
@@ -174,45 +216,28 @@ func GetAuditEvents(database *db.Database) gin.HandlerFunc {
         action := c.Query("action")
         user := c.Query("user")
 
-        var fromTime, toTime time.Time
-        var err error
+        var fromPtr, toPtr *time.Time
 
-        // Parse "from"
         if fromStr != "" {
-            fromTime, err = time.Parse(time.RFC3339, fromStr)
+            t, err := time.Parse(time.RFC3339, fromStr)
             if err != nil {
-                c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'from' timestamp, expected RFC3339"})
+                c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'from' timestamp"})
                 return
             }
+            fromPtr = &t
         }
 
-        // Parse "to"
         if toStr != "" {
-            toTime, err = time.Parse(time.RFC3339, toStr)
+            t, err := time.Parse(time.RFC3339, toStr)
             if err != nil {
-                c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'to' timestamp, expected RFC3339"})
+                c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'to' timestamp"})
                 return
             }
+            toPtr = &t
         }
 
-        // Build query
-        query := database.DB.Model(&db.AuditEvent{})
-
-        if !fromTime.IsZero() {
-            query = query.Where("created_at >= ?", fromTime)
-        }
-        if !toTime.IsZero() {
-            query = query.Where("created_at <= ?", toTime)
-        }
-        if action != "" {
-            query = query.Where("action = ?", action)
-        }
-        if user != "" {
-            query = query.Where("user = ?", user)
-        }
-
-        var events []db.AuditEvent
-        if err := query.Order("created_at DESC").Find(&events).Error; err != nil {
+        events, err := database.QueryAuditEvents(fromPtr, toPtr, action, user)
+        if err != nil {
             c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load audit log"})
             return
         }
