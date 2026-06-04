@@ -21,12 +21,13 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
+# Copy standalone server
 COPY --from=builder /app/.next/standalone ./
+
+# Copy static assets
 COPY --from=builder /app/.next/static ./public/_next/static
 
-# Copy public folder only if it exists
-RUN mkdir -p public && \
-    if [ -d /app/public ]; then cp -r /app/public/* ./public/; fi
+# No public/ copy — Next.js standalone does not need it
 
 EXPOSE 3000
 CMD ["node", "server.js"]
