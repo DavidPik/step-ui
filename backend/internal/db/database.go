@@ -32,12 +32,76 @@ func NewDatabase() *Database {
         log.Fatalf("Failed to connect to MariaDB: %v", err)
     }
 
-    // Auto-create tables if missing
-    if err := db.AutoMigrate(&Certificate{}, &AuditEvent{}); err != nil {
+    // Create tables if missing
+    if err := db.AutoMigrate(&Certificate{}, &AuditEvent{}, &CASettings{}); err != nil {
         log.Fatalf("Failed to migrate database schema: %v", err)
     }
 
+    // Ensure CA settings exist
+    ensureDefaultCASettings(db)
+
     return &Database{DB: db}
+}
+
+// ------------------------------------------------------------
+// CA Settings
+// ------------------------------------------------------------
+
+func ensureDefaultCASettings(db *gorm.DB) {
+    var count int64
+    db.Model(&CASettings{}).Count(&count)
+
+    if count == 0 {
+        // Create default settings from ENV
+        settings := CASettings{
+            CAUrl:             os.Getenv("CA_URL"),
+            Fingerprint:       os.Getenv("CA_FINGERPRINT"),
+            ProvisionerName:   os.Getenv("CA_PROVISIONER"),
+            ProvisionerSecret: os.Getenv("CA_PROVISIONER_PASSWORD"),
+        }
+
+        if err := db.Create(&settings).Error; err != nil {
+            log.Fatalf("Failed to create default CA settings: %v", err)
+        }
+
+        log.Println("Created default CA settings in database")
+    }
+}
+
+func (d *Database) GetCASettings() (*CASettings, error) {
+    var settings CASettings
+    if err := d.DB.First(&settings).Error; err != nil {
+        return nil, err
+    }
+    return &settings, nil
+}
+
+func (d *Database) UpdateCASettings(settings *CASettings) error {
+    return d.DB.Save(settings).Error
+}
+
+// ------------------------------------------------------------
+// CA Settings CRUD
+// ------------------------------------------------------------
+
+func (d *Database) GetCASettings() (*CASettings, error) {
+    var settings CASettings
+    if err := d.DB.First(&settings).Error; err != nil {
+        return nil, err
+    }
+    return &settings, nil
+}
+
+func (d *Database) UpdateCASettings(settings *CASettings) error {
+    return d.DB.Save(settings).Error
+}
+
+func (d *Database) CreateCASettings(settings *CASettings) error {
+    return d.DB.Create(settings).Error
+}
+
+func (d *Database) DeleteCASettings(id uint) error {
+    return d.DB.Delete(&CASettings{}, id).Error
 }
 
 // ------------------------------------------------------------
