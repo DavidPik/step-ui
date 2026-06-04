@@ -27,10 +27,19 @@ type AuditEvent struct {
 }
 
 type CASettings struct {
-	ID           uint   `gorm:"primaryKey" json:"id"`
-	CAURL        string `json:"ca_url"`
-	RootFingerprint string `json:"root_fingerprint"`
-	ACMEDirectories []string `gorm:"type:text" json:"acme_directories"` // JSON array
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+    ID               uint      `gorm:"primaryKey" json:"id"`
+
+    // Core CA configuration
+    CAURL            string    `json:"ca_url"`
+    RootFingerprint  string    `json:"root_fingerprint"`
+
+    // Provisioner management
+    ProvisionerName   string   `json:"provisioner_name"`
+    ProvisionerSecret string   `json:"provisioner_secret"`
+
+    // ACME support (future)
+    ACMEDirectories  []string  `gorm:"type:text" json:"acme_directories"`
+
+    CreatedAt        time.Time `json:"created_at"`
+    UpdatedAt        time.Time `json:"updated_at"`
 }
