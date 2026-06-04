@@ -1,398 +1,222 @@
-package api
+package handlers
 
 import (
-	"encoding/json"
-	"fmt"
-	"log"
-	"net/http"
-	"strconv"
-	"time"
+    "net/http"
 
-	"step-ca-webui/internal/db"
-	"step-ca-webui/internal/step"
+    "github.com/gin-gonic/gin"
 
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
+    "github.com/DavidPik/step-ui/backend/internal/db"
+    "github.com/DavidPik/step-ui/backend/internal/step"
 )
 
-type Handlers struct {
-	db         *db.Database
-	stepClient *step.StepClient
+// ------------------------------------------------------------
+// CA SETTINGS
+// ------------------------------------------------------------
+
+func GetCASettings(database *db.Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        settings, err := database.GetCASettings()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load CA settings"})
+            return
+        }
+        c.JSON(http.StatusOK, settings)
+    }
 }
 
-func NewHandlers(database *db.Database, stepClient *step.StepClient) *Handlers {
-	return &Handlers{
-		db:         database,
-		stepClient: stepClient,
-	}
+func UpdateCASettings(database *db.Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        var input db.CASettings
+        if err := c.ShouldBindJSON(&input); err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+            return
+        }
+
+        if err := database.UpdateCASettings(&input); err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update CA settings"})
+            return
+        }
+
+        c.JSON(http.StatusOK, gin.H{"status": "updated"})
+    }
 }
 
-type IssueRequest struct {
-	CN           string   `json:"cn" binding:"required"`
-	SANs         []string `json:"sans"`
-	NotAfterDays int      `json:"not_after_days" binding:"required"`
-	Format       string   `json:"format"` // pem, pfx
-	PFXPassword  string   `json:"pfx_password,omitempty"`
+// ------------------------------------------------------------
+// PROVISIONERS
+// ------------------------------------------------------------
+
+func ListProvisioners(database *db.Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        settings, err := database.GetCASettings()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load CA settings"})
+            return
+        }
+
+        client := step.NewClientFromSettings(settings)
+        provisioners, err := client.ListProvisioners()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        c.JSON(http.StatusOK, provisioners)
+    }
 }
 
-type SignCSRRequest struct {
-	CSRPEM       string `json:"csr_pem" binding:"required"`
-	NotAfterDays int    `json:"not_after_days" binding:"required"`
+func SelectProvisioner(database *db.Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        var input struct {
+            Name   string `json:"name"`
+            Secret string `json:"secret"`
+        }
+
+        if err := c.ShouldBindJSON(&input); err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+            return
+        }
+
+        settings, err := database.GetCASettings()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load CA settings"})
+            return
+        }
+
+        settings.ProvisionerName = input.Name
+        settings.ProvisionerSecret = input.Secret
+
+        if err := database.UpdateCASettings(settings); err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update provisioner"})
+            return
+        }
+
+        c.JSON(http.StatusOK, gin.H{"status": "provisioner selected"})
+    }
 }
 
-type CertResponse struct {
-	ID          string    `json:"id"`
-	CN          string    `json:"cn"`
-	SANs        []string  `json:"sans"`
-	NotAfter    time.Time `json:"not_after"`
-	Status      string    `json:"status"`
-	KeyStrategy string    `json:"key_strategy"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+// ------------------------------------------------------------
+// CERTIFICATES
+// ------------------------------------------------------------
+
+func IssueCertificate(database *db.Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        var req step.CertificateRequest
+        if err := c.ShouldBindJSON(&req); err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+            return
+        }
+
+        settings, err := database.GetCASettings()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load CA settings"})
+            return
+        }
+
+        client := step.NewClientFromSettings(settings)
+
+        // Issue certificate
+        resp, err := client.IssueCertificate(req)
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        // Build ZIP package
+        zipBytes, err := client.BuildCertificatePackage(req.CommonName, resp)
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build certificate package"})
+            return
+        }
+
+        // Send ZIP as download
+        c.Header("Content-Type", "application/zip")
+        c.Header("Content-Disposition", "attachment; filename=\""+req.CommonName+".zip\"")
+        c.Data(http.StatusOK, "application/zip", zipBytes)
+    }
 }
 
-type DownloadResponse struct {
-	Data     []byte `json:"data"`
-	Filename string `json:"filename"`
-	MimeType string `json:"mime_type"`
+func RevokeCertificate(database *db.Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        var input struct {
+            Serial string `json:"serial"`
+        }
+
+        if err := c.ShouldBindJSON(&input); err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+            return
+        }
+
+        settings, err := database.GetCASettings()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load CA settings"})
+            return
+        }
+
+        client := step.NewClientFromSettings(settings)
+
+        if err := client.RevokeCertificate(input.Serial); err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        c.JSON(http.StatusOK, gin.H{"status": "revoked"})
+    }
 }
 
-// IssueCertificate issues a new certificate
-func (h *Handlers) IssueCertificate(c *gin.Context) {
-	var req IssueRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+// ------------------------------------------------------------
+// AUDIT LOG
+// ------------------------------------------------------------
 
-	log.Printf("DEBUG [Handler]: IssueCertificate handler called with CN=%s\n", req.CN)
-	
-	// Generate certificate using step CLI
-	bundle, err := h.stepClient.IssueCertificate(req.CN, req.SANs, req.NotAfterDays)
-	if err != nil {
-		log.Printf("DEBUG [Handler]: IssueCertificate returned error: %v\n", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to issue certificate: %v", err)})
-		return
-	}
+func GetAuditEvents(database *db.Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        fromStr := c.Query("from")
+        toStr := c.Query("to")
+        action := c.Query("action")
+        user := c.Query("user")
 
-	// Generate unique ID for the certificate
-	certID := uuid.New().String()
+        var fromTime, toTime time.Time
+        var err error
 
-	// Store certificate metadata in database
-	sansJSON, _ := json.Marshal(req.SANs)
-	cert := &db.Certificate{
-		ID:          certID,
-		CN:          req.CN,
-		SANs:        string(sansJSON),
-		NotAfter:    bundle.NotAfter,
-		Status:      "active",
-		KeyStrategy: "server",
-		StorageRef:  "ephemeral",
-		OwnerUser:   "system", // No auth for MVP
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
-	}
+        // Parse "from"
+        if fromStr != "" {
+            fromTime, err = time.Parse(time.RFC3339, fromStr)
+            if err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'from' timestamp, expected RFC3339"})
+                return
+            }
+        }
 
-	if err := h.db.CreateCertificate(cert); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store certificate metadata"})
-		return
-	}
+        // Parse "to"
+        if toStr != "" {
+            toTime, err = time.Parse(time.RFC3339, toStr)
+            if err != nil {
+                c.JSON(http.StatusBadRequest, gin.H{"error": "invalid 'to' timestamp, expected RFC3339"})
+                return
+            }
+        }
 
-	// Log audit event
-	auditEvent := &db.AuditEvent{
-		CertID:    certID,
-		Who:       "system",
-		Action:    "issued",
-		Details:   fmt.Sprintf("CN: %s, SANs: %v", req.CN, req.SANs),
-		Timestamp: time.Now(),
-	}
-	h.db.LogAuditEvent(auditEvent)
+        // Build query
+        query := database.DB.Model(&db.AuditEvent{})
 
-	// Create download bundle
-	downloadData, err := h.stepClient.CreateDownloadBundle(bundle, req.Format, req.PFXPassword)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create download bundle"})
-		return
-	}
+        if !fromTime.IsZero() {
+            query = query.Where("created_at >= ?", fromTime)
+        }
+        if !toTime.IsZero() {
+            query = query.Where("created_at <= ?", toTime)
+        }
+        if action != "" {
+            query = query.Where("action = ?", action)
+        }
+        if user != "" {
+            query = query.Where("user = ?", user)
+        }
 
-	// Return certificate info and download data
-	response := CertResponse{
-		ID:          certID,
-		CN:          req.CN,
-		SANs:        req.SANs,
-		NotAfter:    bundle.NotAfter,
-		Status:      "active",
-		KeyStrategy: "server",
-		CreatedAt:   cert.CreatedAt,
-		UpdatedAt:   cert.UpdatedAt,
-	}
+        var events []db.AuditEvent
+        if err := query.Order("created_at DESC").Find(&events).Error; err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load audit log"})
+            return
+        }
 
-	c.JSON(http.StatusOK, gin.H{
-		"certificate": response,
-		"download": gin.H{
-			"data":     downloadData,
-			"filename": fmt.Sprintf("%s-cert-bundle.zip", req.CN),
-			"mime_type": "application/zip",
-		},
-	})
-}
-
-// SignCSR signs a certificate signing request
-func (h *Handlers) SignCSR(c *gin.Context) {
-	var req SignCSRRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	// Sign CSR using step CLI
-	bundle, err := h.stepClient.SignCSR(req.CSRPEM, req.NotAfterDays)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to sign CSR: %v", err)})
-		return
-	}
-
-	// Generate unique ID for the certificate
-	certID := uuid.New().String()
-
-	// Parse CSR to extract CN and SANs (simplified - in real implementation, parse CSR)
-	cn := "unknown" // Would need to parse CSR properly
-	sans := []string{}
-
-	// Store certificate metadata in database
-	sansJSON, _ := json.Marshal(sans)
-	cert := &db.Certificate{
-		ID:          certID,
-		CN:          cn,
-		SANs:        string(sansJSON),
-		NotAfter:    bundle.NotAfter,
-		Status:      "active",
-		KeyStrategy: "csr",
-		StorageRef:  "ephemeral",
-		OwnerUser:   "system",
-		CreatedAt:   time.Now(),
-		UpdatedAt:   time.Now(),
-	}
-
-	if err := h.db.CreateCertificate(cert); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to store certificate metadata"})
-		return
-	}
-
-	// Log audit event
-	auditEvent := &db.AuditEvent{
-		CertID:    certID,
-		Who:       "system",
-		Action:    "signed_csr",
-		Details:   fmt.Sprintf("CN: %s", cn),
-		Timestamp: time.Now(),
-	}
-	h.db.LogAuditEvent(auditEvent)
-
-	// Return certificate info
-	response := CertResponse{
-		ID:          certID,
-		CN:          cn,
-		SANs:        sans,
-		NotAfter:    bundle.NotAfter,
-		Status:      "active",
-		KeyStrategy: "csr",
-		CreatedAt:   cert.CreatedAt,
-		UpdatedAt:   cert.UpdatedAt,
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"certificate": response,
-		"cert_pem":    string(bundle.CertPEM),
-		"chain_pem":   string(bundle.ChainPEM),
-	})
-}
-
-// ListCertificates returns a list of certificates
-func (h *Handlers) ListCertificates(c *gin.Context) {
-	// Parse query parameters
-	limitStr := c.DefaultQuery("limit", "50")
-	offsetStr := c.DefaultQuery("offset", "0")
-	status := c.Query("status")
-
-	limit, err := strconv.Atoi(limitStr)
-	if err != nil {
-		limit = 50
-	}
-
-	offset, err := strconv.Atoi(offsetStr)
-	if err != nil {
-		offset = 0
-	}
-
-	// Get certificates from database
-	certs, err := h.db.ListCertificates(limit, offset, status)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list certificates"})
-		return
-	}
-
-	// Convert to response format
-	var responses []CertResponse
-	for _, cert := range certs {
-		var sans []string
-		json.Unmarshal([]byte(cert.SANs), &sans)
-		
-		responses = append(responses, CertResponse{
-			ID:          cert.ID,
-			CN:          cert.CN,
-			SANs:        sans,
-			NotAfter:    cert.NotAfter,
-			Status:      cert.Status,
-			KeyStrategy: cert.KeyStrategy,
-			CreatedAt:   cert.CreatedAt,
-			UpdatedAt:   cert.UpdatedAt,
-		})
-	}
-
-	c.JSON(http.StatusOK, gin.H{"certificates": responses})
-}
-
-// GetCertificate returns a specific certificate
-func (h *Handlers) GetCertificate(c *gin.Context) {
-	certID := c.Param("id")
-	
-	cert, err := h.db.GetCertificate(certID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Certificate not found"})
-		return
-	}
-
-	var sans []string
-	json.Unmarshal([]byte(cert.SANs), &sans)
-	
-	response := CertResponse{
-		ID:          cert.ID,
-		CN:          cert.CN,
-		SANs:        sans,
-		NotAfter:    cert.NotAfter,
-		Status:      cert.Status,
-		KeyStrategy: cert.KeyStrategy,
-		CreatedAt:   cert.CreatedAt,
-		UpdatedAt:   cert.UpdatedAt,
-	}
-
-	c.JSON(http.StatusOK, gin.H{"certificate": response})
-}
-
-// RenewCertificate renews a certificate
-func (h *Handlers) RenewCertificate(c *gin.Context) {
-	certID := c.Param("id")
-	
-	// Get existing certificate
-	cert, err := h.db.GetCertificate(certID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Certificate not found"})
-		return
-	}
-
-	// Parse SANs
-	var sans []string
-	json.Unmarshal([]byte(cert.SANs), &sans)
-
-	// Issue new certificate with same CN and SANs
-	bundle, err := h.stepClient.IssueCertificate(cert.CN, sans, 90) // Default 90 days
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to renew certificate: %v", err)})
-		return
-	}
-
-	// Update certificate in database
-	cert.NotAfter = bundle.NotAfter
-	cert.UpdatedAt = time.Now()
-	if err := h.db.UpdateCertificate(cert); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update certificate"})
-		return
-	}
-
-	// Log audit event
-	auditEvent := &db.AuditEvent{
-		CertID:    certID,
-		Who:       "system",
-		Action:    "renewed",
-		Details:   fmt.Sprintf("CN: %s", cert.CN),
-		Timestamp: time.Now(),
-	}
-	h.db.LogAuditEvent(auditEvent)
-
-	// Return new certificate info
-	var responseSans []string
-	json.Unmarshal([]byte(cert.SANs), &responseSans)
-	
-	response := CertResponse{
-		ID:          cert.ID,
-		CN:          cert.CN,
-		SANs:        responseSans,
-		NotAfter:    cert.NotAfter,
-		Status:      cert.Status,
-		KeyStrategy: cert.KeyStrategy,
-		CreatedAt:   cert.CreatedAt,
-		UpdatedAt:   cert.UpdatedAt,
-	}
-
-	c.JSON(http.StatusOK, gin.H{"certificate": response})
-}
-
-// RevokeCertificate revokes a certificate
-func (h *Handlers) RevokeCertificate(c *gin.Context) {
-	certID := c.Param("id")
-	
-	// Get certificate
-	cert, err := h.db.GetCertificate(certID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Certificate not found"})
-		return
-	}
-
-	// Revoke using step CLI (would need serial number)
-	// For now, just mark as revoked in database
-	cert.Status = "revoked"
-	cert.UpdatedAt = time.Now()
-	if err := h.db.UpdateCertificate(cert); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to revoke certificate"})
-		return
-	}
-
-	// Log audit event
-	auditEvent := &db.AuditEvent{
-		CertID:    certID,
-		Who:       "system",
-		Action:    "revoked",
-		Details:   fmt.Sprintf("CN: %s", cert.CN),
-		Timestamp: time.Now(),
-	}
-	h.db.LogAuditEvent(auditEvent)
-
-	c.JSON(http.StatusOK, gin.H{"message": "Certificate revoked successfully"})
-}
-
-// GetCASettings returns CA configuration
-func (h *Handlers) GetCASettings(c *gin.Context) {
-	// This would typically read from configuration
-	settings := gin.H{
-		"ca_url":           h.stepClient.CAURL,
-		"root_fingerprint": "TODO: Calculate from CA root",
-		"acme_directories": []string{
-			h.stepClient.CAURL + "/acme/acme/directory",
-		},
-	}
-
-	c.JSON(http.StatusOK, settings)
-}
-
-// Health check endpoint  
-func (h *Handlers) Health(c *gin.Context) {
-	// NEW VERSION WITH ROOT FINGERPRINT SUPPORT
-	fmt.Println("=== HEALTH ENDPOINT HIT ===")
-	response := map[string]interface{}{
-		"status":    "healthy-NEW",
-		"timestamp": time.Now().Format(time.RFC3339),
-		"fingerprint_length": len(h.stepClient.CARootFingerprint),
-	}
-	c.JSON(http.StatusOK, response)
+        c.JSON(http.StatusOK, events)
+    }
 }
