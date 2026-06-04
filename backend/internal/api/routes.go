@@ -15,19 +15,15 @@ func RegisterRoutes(r *gin.Engine, database *db.Database) {
     // Provisioners
     api.GET("/provisioners", ListProvisioners(database))
     api.POST("/provisioners/select", SelectProvisioner(database))
-
-    // Provisioner status
     api.GET("/provisioners/selected", GetSelectedProvisioner(database))
-    
-    // Certificates
-    api.POST("/certificates/issue", IssueCertificate(database))
-    api.POST("/certificates/revoke", RevokeCertificate(database))
 
-    // Certificate listing
+    // Certificates
     api.GET("/certificates", ListCertificates(database))
     api.GET("/certificates/:id", GetCertificate(database))
     api.GET("/certificates/:id/download", DownloadCertificatePackage(database))
-    
+    api.POST("/certificates/issue", IssueCertificate(database))
+    api.POST("/certificates/revoke", RevokeCertificate(database))
+
     // Audit log
     api.GET("/audit", GetAuditEvents(database))
 }
