@@ -5,15 +5,16 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
-# Copy Go module files
-COPY backend/go.mod backend/go.sum ./
+# Copy Go module files from backend/
+COPY backend/go.mod go.mod
+COPY backend/go.sum go.sum
 RUN go mod download
 
-# Copy backend source
+# Copy backend source code
 COPY backend/ .
 
 # Build static binary
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o step-ui-backend .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o step-ui-backend ./cmd
 
 # ============================
 # 2) Runtime stage
