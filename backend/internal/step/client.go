@@ -97,14 +97,14 @@ type CertificateRequest struct {
     DNSNames   []string `json:"dns_names"`
 }
 
-type certificateResponse struct {
+type CertificateResponse struct {
     Certificate string `json:"crt"` // PEM
     PrivateKey  string `json:"key"` // PEM
     CABundle    string `json:"ca"`  // PEM
 }
 
 // IssueCertificate zavolá step-ca a vrátí PEM cert, key, ca.
-func (c *StepClient) IssueCertificate(req CertificateRequest) (*certificateResponse, error) {
+func (c *StepClient) IssueCertificate(req CertificateRequest) (*CertificateResponse, error) {
     url := fmt.Sprintf("%s/sign", strings.TrimRight(c.CAURL, "/"))
 
     payload := map[string]interface{}{
@@ -136,7 +136,7 @@ func (c *StepClient) IssueCertificate(req CertificateRequest) (*certificateRespo
         return nil, fmt.Errorf("step-ca /sign returned %d: %s", resp.StatusCode, string(b))
     }
 
-    var out certificateResponse
+    var out CertificateResponse
     if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
         return nil, fmt.Errorf("decoding sign response: %w", err)
     }
@@ -193,7 +193,7 @@ const (
 )
 
 // BuildCertificatePackage vytvoří ZIP s různými formáty certifikátu.
-func (c *StepClient) BuildCertificatePackage(commonName string, resp *certificateResponse) ([]byte, error) {
+func (c *StepClient) BuildCertificatePackage(commonName string, resp *CertificateResponse) ([]byte, error) {
     buf := &bytes.Buffer{}
     zipWriter := zip.NewWriter(buf)
 
