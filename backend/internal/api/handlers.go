@@ -111,6 +111,25 @@ func SelectProvisioner(database *db.Database) gin.HandlerFunc {
 }
 
 // ------------------------------------------------------------
+// PROVISIONER STATUS
+// ------------------------------------------------------------
+
+func GetSelectedProvisioner(database *db.Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        settings, err := database.GetCASettings()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load CA settings"})
+            return
+        }
+
+        c.JSON(http.StatusOK, gin.H{
+            "name":   settings.ProvisionerName,
+            "secret": settings.ProvisionerSecret,
+        })
+    }
+}
+
+// ------------------------------------------------------------
 // CERTIFICATES
 // ------------------------------------------------------------
 
@@ -202,6 +221,72 @@ func RevokeCertificate(database *db.Database) gin.HandlerFunc {
         })
 
         c.JSON(http.StatusOK, gin.H{"status": "revoked"})
+    }
+}
+
+// ------------------------------------------------------------
+// CERTIFICATE LISTING
+// ------------------------------------------------------------
+
+func ListCertificates(database *db.Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        certs, err := database.ListCertificates()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load certificates"})
+            return
+        }
+        c.JSON(http.StatusOK, certs)
+    }
+}
+
+func GetCertificate(database *db.Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        id := c.Param("id")
+
+        cert, err := database.GetCertificateByID(id)
+        if err != nil {
+            c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
+            return
+        }
+
+        c.JSON(http.StatusOK, cert)
+    }
+}
+
+func DownloadCertificatePackage(database *db.Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        id := c.Param("id")
+
+        cert, err := database.GetCertificateByID(id)
+        if err != nil {
+            c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
+            return
+        }
+
+        settings, err := database.GetCASettings()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load CA settings"})
+            return
+        }
+
+        client := step.NewClientFromSettings(settings)
+
+        // Build ZIP package again
+        resp := step.IssueResponse{
+            Certificate: cert.CertificatePEM,
+            PrivateKey:  cert.PrivateKeyPEM,
+            CAChain:     cert.CAChainPEM,
+        }
+
+        zipBytes, err := client.BuildCertificatePackage(cert.CommonName, &resp)
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build certificate package"})
+            return
+        }
+
+        c.Header("Content-Type", "application/zip")
+        c.Header("Content-Disposition", "attachment; filename=\""+cert.CommonName+".zip\"")
+        c.Data(http.StatusOK, "application/zip", zipBytes)
     }
 }
 
