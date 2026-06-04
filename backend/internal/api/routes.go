@@ -1,25 +1,26 @@
 package api
 
 import (
-	"github.com/gin-gonic/gin"
+    "github.com/gin-gonic/gin"
+    "github.com/DavidPik/step-ui/backend/internal/db"
+    "github.com/DavidPik/step-ui/backend/internal/api/handlers"
 )
 
-func SetupRoutes(r *gin.Engine, handlers *Handlers) {
-	// Health check
-	r.GET("/health", handlers.Health)
+func RegisterRoutes(r *gin.Engine, database *db.Database) {
+    api := r.Group("/api")
 
-	// API routes
-	api := r.Group("/api")
-	{
-		// Certificate operations
-		api.POST("/certs/issue", handlers.IssueCertificate)
-		api.POST("/certs/sign-csr", handlers.SignCSR)
-		api.GET("/certs", handlers.ListCertificates)
-		api.GET("/certs/:id", handlers.GetCertificate)
-		api.POST("/certs/:id/renew", handlers.RenewCertificate)
-		api.POST("/certs/:id/revoke", handlers.RevokeCertificate)
+    // CA Settings
+    api.GET("/settings/ca", handlers.GetCASettings(database))
+    api.PUT("/settings/ca", handlers.UpdateCASettings(database))
 
-		// Settings
-		api.GET("/settings/ca", handlers.GetCASettings)
-	}
+    // Provisioners
+    api.GET("/provisioners", handlers.ListProvisioners(database))
+    api.POST("/provisioners/select", handlers.SelectProvisioner(database))
+
+    // Certificates
+    api.POST("/certificates/issue", handlers.IssueCertificate(database))
+    api.POST("/certificates/revoke", handlers.RevokeCertificate(database))
+
+    // Audit log
+    api.GET("/audit", handlers.GetAuditEvents(database))
 }
