@@ -3,7 +3,6 @@ package api
 import (
     "github.com/gin-gonic/gin"
     "github.com/DavidPik/step-ui/backend/internal/db"
-    "github.com/DavidPik/step-ui/backend/internal/api/handlers"
 )
 
 func RegisterRoutes(r *gin.Engine, database *db.Database) {
