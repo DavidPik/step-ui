@@ -267,6 +267,34 @@ func pemToDER(pemBytes []byte) ([]byte, error) {
     return cert.Raw, nil
 }
 
+// ------------------------------------------------------------
+// Certificate metadata parser
+// ------------------------------------------------------------
+
+type CertificateMetadata struct {
+    Serial    string
+    NotBefore time.Time
+    NotAfter  time.Time
+}
+
+func ParseCertificateMetadata(pemCert string) (*CertificateMetadata, error) {
+    block, _ := pem.Decode([]byte(pemCert))
+    if block == nil {
+        return nil, fmt.Errorf("failed to decode PEM certificate")
+    }
+
+    cert, err := x509.ParseCertificate(block.Bytes)
+    if err != nil {
+        return nil, fmt.Errorf("failed to parse certificate: %w", err)
+    }
+
+    return &CertificateMetadata{
+        Serial:    cert.SerialNumber.String(),
+        NotBefore: cert.NotBefore,
+        NotAfter:  cert.NotAfter,
+    }, nil
+}
+
 func sanitizeFilename(s string) string {
     s = strings.TrimSpace(s)
     s = strings.ReplaceAll(s, " ", "_")
