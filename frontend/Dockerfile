@@ -25,8 +25,8 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./public/_next/static
 
 # Copy public folder only if it exists
-RUN mkdir -p public
-COPY --from=builder /app/public ./public || true
+RUN mkdir -p public && \
+    if [ -d /app/public ]; then cp -r /app/public/* ./public/; fi
 
 EXPOSE 3000
 CMD ["node", "server.js"]
