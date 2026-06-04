@@ -4,15 +4,18 @@ import (
     "fmt"
     "log"
     "os"
+    "strings"
 
     "gorm.io/driver/mysql"
     "gorm.io/gorm"
 )
 
+// Database wrapper
 type Database struct {
     DB *gorm.DB
 }
 
+// Initialize DB connection + migrations + default CA settings
 func NewDatabase() *Database {
     user := os.Getenv("DB_USER")
     pass := os.Getenv("DB_PASSWORD")
@@ -32,32 +35,40 @@ func NewDatabase() *Database {
         log.Fatalf("Failed to connect to MariaDB: %v", err)
     }
 
-    // Create tables if missing
+    // Auto-create tables
     if err := db.AutoMigrate(&Certificate{}, &AuditEvent{}, &CASettings{}); err != nil {
         log.Fatalf("Failed to migrate database schema: %v", err)
     }
 
-    // Ensure CA settings exist
+    // Ensure at least one CA settings record exists
     ensureDefaultCASettings(db)
 
     return &Database{DB: db}
 }
 
+//
 // ------------------------------------------------------------
-// CA Settings
+// CA SETTINGS
 // ------------------------------------------------------------
+//
 
+// Create default CA settings from ENV if DB is empty
 func ensureDefaultCASettings(db *gorm.DB) {
     var count int64
     db.Model(&CASettings{}).Count(&count)
 
     if count == 0 {
-        // Create default settings from ENV
+        acmeDirs := []string{}
+        if env := os.Getenv("ACME_DIRECTORIES"); env != "" {
+            acmeDirs = strings.Split(env, ",")
+        }
+
         settings := CASettings{
-            CAUrl:             os.Getenv("CA_URL"),
-            Fingerprint:       os.Getenv("CA_FINGERPRINT"),
-            ProvisionerName:   os.Getenv("CA_PROVISIONER"),
+            CAURL:           os.Getenv("CA_URL"),
+            RootFingerprint: os.Getenv("CA_FINGERPRINT"),
+            ProvisionerName: os.Getenv("CA_PROVISIONER"),
             ProvisionerSecret: os.Getenv("CA_PROVISIONER_PASSWORD"),
+            ACMEDirectories: acmeDirs,
         }
 
         if err := db.Create(&settings).Error; err != nil {
@@ -68,6 +79,7 @@ func ensureDefaultCASettings(db *gorm.DB) {
     }
 }
 
+// Return the single CA settings record
 func (d *Database) GetCASettings() (*CASettings, error) {
     var settings CASettings
     if err := d.DB.First(&settings).Error; err != nil {
@@ -76,37 +88,26 @@ func (d *Database) GetCASettings() (*CASettings, error) {
     return &settings, nil
 }
 
+// Update CA settings
 func (d *Database) UpdateCASettings(settings *CASettings) error {
     return d.DB.Save(settings).Error
 }
 
-// ------------------------------------------------------------
-// CA Settings CRUD
-// ------------------------------------------------------------
-
-func (d *Database) GetCASettings() (*CASettings, error) {
-    var settings CASettings
-    if err := d.DB.First(&settings).Error; err != nil {
-        return nil, err
-    }
-    return &settings, nil
-}
-
-func (d *Database) UpdateCASettings(settings *CASettings) error {
-    return d.DB.Save(settings).Error
-}
-
+// Create new CA settings (rarely used, but needed for UI)
 func (d *Database) CreateCASettings(settings *CASettings) error {
     return d.DB.Create(settings).Error
 }
 
+// Delete CA settings (only if you support multiple profiles)
 func (d *Database) DeleteCASettings(id uint) error {
     return d.DB.Delete(&CASettings{}, id).Error
 }
 
+//
 // ------------------------------------------------------------
-// Certificate CRUD
+// CERTIFICATES
 // ------------------------------------------------------------
+//
 
 func (d *Database) CreateCertificate(cert *Certificate) error {
     return d.DB.Create(cert).Error
@@ -136,9 +137,11 @@ func (d *Database) DeleteCertificate(id uint) error {
     return d.DB.Delete(&Certificate{}, id).Error
 }
 
+//
 // ------------------------------------------------------------
-// Audit log
+// AUDIT LOG
 // ------------------------------------------------------------
+//
 
 func (d *Database) LogAuditEvent(event *AuditEvent) error {
     return d.DB.Create(event).Error
