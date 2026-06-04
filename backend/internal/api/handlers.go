@@ -160,11 +160,14 @@ func IssueCertificate(database *db.Database) gin.HandlerFunc {
         certMeta, err := step.ParseCertificateMetadata(resp.Certificate)
         if err == nil {
             _ = database.CreateCertificate(&db.Certificate{
-                CommonName: req.CommonName,
-                DNSNames:   strings.Join(req.DNSNames, ","),
-                Serial:     certMeta.Serial,
-                NotBefore:  certMeta.NotBefore,
-                NotAfter:   certMeta.NotAfter,
+                CommonName:     req.CommonName,
+                DNSNames:       strings.Join(req.DNSNames, ","),
+                Serial:         certMeta.Serial,
+                NotBefore:      certMeta.NotBefore,
+                NotAfter:       certMeta.NotAfter,
+                CertificatePEM: resp.Certificate,
+                PrivateKeyPEM:  resp.PrivateKey,
+                CAChainPEM:     resp.CAChain,
             })
         }
 
