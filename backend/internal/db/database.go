@@ -5,17 +5,20 @@ import (
     "log"
     "os"
     "strings"
+    "time"
 
     "gorm.io/driver/mysql"
     "gorm.io/gorm"
 )
 
-// Database wrapper
 type Database struct {
     DB *gorm.DB
 }
 
-// Initialize DB connection + migrations + default CA settings
+// ------------------------------------------------------------
+// INITIALIZATION
+// ------------------------------------------------------------
+
 func NewDatabase() *Database {
     user := os.Getenv("DB_USER")
     pass := os.Getenv("DB_PASSWORD")
@@ -40,19 +43,16 @@ func NewDatabase() *Database {
         log.Fatalf("Failed to migrate database schema: %v", err)
     }
 
-    // Ensure at least one CA settings record exists
+    // Ensure default CA settings exist
     ensureDefaultCASettings(db)
 
     return &Database{DB: db}
 }
 
-//
 // ------------------------------------------------------------
-// CA SETTINGS
+// DEFAULT CA SETTINGS
 // ------------------------------------------------------------
-//
 
-// Create default CA settings from ENV if DB is empty
 func ensureDefaultCASettings(db *gorm.DB) {
     var count int64
     db.Model(&CASettings{}).Count(&count)
@@ -64,11 +64,11 @@ func ensureDefaultCASettings(db *gorm.DB) {
         }
 
         settings := CASettings{
-            CAURL:           os.Getenv("CA_URL"),
-            RootFingerprint: os.Getenv("CA_FINGERPRINT"),
-            ProvisionerName: os.Getenv("CA_PROVISIONER"),
+            CAURL:             os.Getenv("CA_URL"),
+            RootFingerprint:   os.Getenv("CA_FINGERPRINT"),
+            ProvisionerName:   os.Getenv("CA_PROVISIONER"),
             ProvisionerSecret: os.Getenv("CA_PROVISIONER_PASSWORD"),
-            ACMEDirectories: acmeDirs,
+            ACMEDirectories:   acmeDirs,
         }
 
         if err := db.Create(&settings).Error; err != nil {
@@ -79,7 +79,10 @@ func ensureDefaultCASettings(db *gorm.DB) {
     }
 }
 
-// Return the single CA settings record
+// ------------------------------------------------------------
+// CA SETTINGS CRUD
+// ------------------------------------------------------------
+
 func (d *Database) GetCASettings() (*CASettings, error) {
     var settings CASettings
     if err := d.DB.First(&settings).Error; err != nil {
@@ -88,26 +91,21 @@ func (d *Database) GetCASettings() (*CASettings, error) {
     return &settings, nil
 }
 
-// Update CA settings
 func (d *Database) UpdateCASettings(settings *CASettings) error {
     return d.DB.Save(settings).Error
 }
 
-// Create new CA settings (rarely used, but needed for UI)
 func (d *Database) CreateCASettings(settings *CASettings) error {
     return d.DB.Create(settings).Error
 }
 
-// Delete CA settings (only if you support multiple profiles)
 func (d *Database) DeleteCASettings(id uint) error {
     return d.DB.Delete(&CASettings{}, id).Error
 }
 
-//
 // ------------------------------------------------------------
-// CERTIFICATES
+// CERTIFICATES CRUD
 // ------------------------------------------------------------
-//
 
 func (d *Database) CreateCertificate(cert *Certificate) error {
     return d.DB.Create(cert).Error
@@ -129,28 +127,43 @@ func (d *Database) ListCertificates() ([]Certificate, error) {
     return certs, nil
 }
 
-func (d *Database) UpdateCertificate(cert *Certificate) error {
-    return d.DB.Save(cert).Error
-}
-
 func (d *Database) DeleteCertificate(id uint) error {
     return d.DB.Delete(&Certificate{}, id).Error
 }
 
-//
 // ------------------------------------------------------------
 // AUDIT LOG
 // ------------------------------------------------------------
-//
 
 func (d *Database) LogAuditEvent(event *AuditEvent) error {
     return d.DB.Create(event).Error
 }
 
-func (d *Database) GetAuditEvents() ([]AuditEvent, error) {
+// Helper: Query audit events with filters
+func (d *Database) QueryAuditEvents(
+    from, to *time.Time,
+    action, user string,
+) ([]AuditEvent, error) {
+
+    query := d.DB.Model(&AuditEvent{})
+
+    if from != nil {
+        query = query.Where("created_at >= ?", *from)
+    }
+    if to != nil {
+        query = query.Where("created_at <= ?", *to)
+    }
+    if action != "" {
+        query = query.Where("action = ?", action)
+    }
+    if user != "" {
+        query = query.Where("user = ?", user)
+    }
+
     var events []AuditEvent
-    if err := d.DB.Order("id desc").Find(&events).Error; err != nil {
+    if err := query.Order("created_at DESC").Find(&events).Error; err != nil {
         return nil, err
     }
+
     return events, nil
 }
