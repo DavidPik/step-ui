@@ -167,7 +167,7 @@ func IssueCertificate(database *db.Database) gin.HandlerFunc {
                 NotAfter:       certMeta.NotAfter,
                 CertificatePEM: resp.Certificate,
                 PrivateKeyPEM:  resp.PrivateKey,
-                CAChainPEM:     resp.CAChain,
+                CAChainPEM:     resp.CABundle,
             })
         }
 
@@ -274,11 +274,10 @@ func DownloadCertificatePackage(database *db.Database) gin.HandlerFunc {
 
         client := step.NewClientFromSettings(settings)
 
-        // Build ZIP package again
-        resp := step.IssueResponse{
+        resp := step.CertificateResponse{
             Certificate: cert.CertificatePEM,
             PrivateKey:  cert.PrivateKeyPEM,
-            CAChain:     cert.CAChainPEM,
+            CABundle:    cert.CAChainPEM,
         }
 
         zipBytes, err := client.BuildCertificatePackage(cert.CommonName, &resp)
