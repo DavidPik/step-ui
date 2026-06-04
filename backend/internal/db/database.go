@@ -1,91 +1,84 @@
 package db
 
 import (
-	"os"
-	"path/filepath"
+    "fmt"
+    "log"
+    "os"
 
-	"gorm.io/driver/sqlite"
-	"gorm.io/gorm"
+    "gorm.io/driver/mysql"
+    "gorm.io/gorm"
 )
 
 type Database struct {
-	DB *gorm.DB
+    DB *gorm.DB
 }
 
-func NewDatabase(dbPath string) (*Database, error) {
-	// Ensure directory exists
-	dir := filepath.Dir(dbPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, err
-	}
+func NewDatabase() *Database {
+    user := os.Getenv("DB_USER")
+    pass := os.Getenv("DB_PASSWORD")
+    host := os.Getenv("DB_HOST")
+    port := os.Getenv("DB_PORT")
+    name := os.Getenv("DB_NAME")
 
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
-	if err != nil {
-		return nil, err
-	}
+    if user == "" || pass == "" || host == "" || port == "" || name == "" {
+        log.Fatalf("Missing database configuration: DB_USER, DB_PASSWORD, DB_HOST, DB_PORT, DB_NAME must be set")
+    }
 
-	// Auto-migrate the schema
-	if err := db.AutoMigrate(&Certificate{}, &AuditEvent{}, &CASettings{}); err != nil {
-		return nil, err
-	}
+    dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+        user, pass, host, port, name)
 
-	return &Database{DB: db}, nil
+    db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+    if err != nil {
+        log.Fatalf("Failed to connect to MariaDB: %v", err)
+    }
+
+    return &Database{DB: db}
 }
+
+// ------------------------------------------------------------
+// Certificate CRUD
+// ------------------------------------------------------------
 
 func (d *Database) CreateCertificate(cert *Certificate) error {
-	return d.DB.Create(cert).Error
+    return d.DB.Create(cert).Error
 }
 
-func (d *Database) GetCertificate(id string) (*Certificate, error) {
-	var cert Certificate
-	err := d.DB.Where("id = ?", id).First(&cert).Error
-	return &cert, err
+func (d *Database) GetCertificate(id uint) (*Certificate, error) {
+    var cert Certificate
+    if err := d.DB.First(&cert, id).Error; err != nil {
+        return nil, err
+    }
+    return &cert, nil
 }
 
-func (d *Database) ListCertificates(limit, offset int, status string) ([]Certificate, error) {
-	var certs []Certificate
-	query := d.DB.Order("created_at DESC")
-	
-	if status != "" {
-		query = query.Where("status = ?", status)
-	}
-	
-	if limit > 0 {
-		query = query.Limit(limit)
-	}
-	
-	if offset > 0 {
-		query = query.Offset(offset)
-	}
-	
-	err := query.Find(&certs).Error
-	return certs, err
+func (d *Database) ListCertificates() ([]Certificate, error) {
+    var certs []Certificate
+    if err := d.DB.Order("id desc").Find(&certs).Error; err != nil {
+        return nil, err
+    }
+    return certs, nil
 }
 
 func (d *Database) UpdateCertificate(cert *Certificate) error {
-	return d.DB.Save(cert).Error
+    return d.DB.Save(cert).Error
 }
 
-func (d *Database) DeleteCertificate(id string) error {
-	return d.DB.Where("id = ?", id).Delete(&Certificate{}).Error
+func (d *Database) DeleteCertificate(id uint) error {
+    return d.DB.Delete(&Certificate{}, id).Error
 }
+
+// ------------------------------------------------------------
+// Audit log
+// ------------------------------------------------------------
 
 func (d *Database) LogAuditEvent(event *AuditEvent) error {
-	return d.DB.Create(event).Error
+    return d.DB.Create(event).Error
 }
 
-func (d *Database) GetAuditEvents(certID string, limit int) ([]AuditEvent, error) {
-	var events []AuditEvent
-	query := d.DB.Order("timestamp DESC")
-	
-	if certID != "" {
-		query = query.Where("cert_id = ?", certID)
-	}
-	
-	if limit > 0 {
-		query = query.Limit(limit)
-	}
-	
-	err := query.Find(&events).Error
-	return events, err
+func (d *Database) GetAuditEvents() ([]AuditEvent, error) {
+    var events []AuditEvent
+    if err := d.DB.Order("id desc").Find(&events).Error; err != nil {
+        return nil, err
+    }
+    return events, nil
 }
