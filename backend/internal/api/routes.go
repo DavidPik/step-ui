@@ -8,29 +8,18 @@ import (
 func RegisterRoutes(r *gin.Engine, database *db.Database) {
     api := r.Group("/api")
 
+    // CA Settings
+    api.GET("/settings", GetCASettings(database))
+    api.PUT("/settings", UpdateCASettings(database))
+
     // Provisioners
-    api.GET("/provisioners", func(c *gin.Context) {
-        GetProvisioners(c, database)
-    })
+    api.GET("/provisioners", ListProvisioners(database))
+    api.POST("/provisioners/select", SelectProvisioner(database))
 
     // Certificates
-    api.POST("/certificates/issue", func(c *gin.Context) {
-        IssueCertificate(c, database)
-    })
+    api.POST("/certificates/issue", IssueCertificate(database))
+    api.POST("/certificates/revoke", RevokeCertificate(database))
 
-    api.POST("/certificates/revoke", func(c *gin.Context) {
-        RevokeCertificate(c, database)
-    })
-
-    api.GET("/certificates", func(c *gin.Context) {
-        ListCertificates(c, database)
-    })
-
-    api.GET("/certificates/:id", func(c *gin.Context) {
-        GetCertificate(c, database)
-    })
-
-    api.GET("/certificates/:id/download", func(c *gin.Context) {
-        DownloadCertificatePackage(c, database)
-    })
+    // Audit log
+    api.GET("/audit", GetAuditEvents(database))
 }
