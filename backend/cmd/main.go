@@ -1,76 +1,53 @@
 package main
 
 import (
-	"fmt"
-	"log"
+    "log"
+    "os"
 
-	"step-ca-webui/internal/api"
-	"step-ca-webui/internal/config"
-	"step-ca-webui/internal/db"
-	"step-ca-webui/internal/step"
+    "github.com/gin-gonic/gin"
+    "github.com/joho/godotenv"
 
-	"github.com/gin-gonic/gin"
-	"github.com/joho/godotenv"
+    "github.com/DavidPik/step-ui/backend/internal/api"
+    "github.com/DavidPik/step-ui/backend/internal/db"
 )
 
 func main() {
-	// Load environment variables
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using environment variables")
-	}
+    // Load environment variables from .env (optional)
+    if err := godotenv.Load(); err != nil {
+        log.Println("No .env file found, using environment variables")
+    }
 
-	// Load configuration
-	cfg := config.Load()
-	
-	// DEBUG: Print configuration at startup
-	log.Printf("=== CONFIGURATION ===")
-	log.Printf("CA_URL: %s", cfg.CAURL)
-	log.Printf("CA_ROOT_FINGERPRINT: %s", cfg.CARootFingerprint)
-	log.Printf("PROVISIONER_NAME: %s", cfg.ProvisionerName)
-	log.Printf("====================")
+    // Initialize database (MariaDB)
+    database := db.NewDatabase()
 
-	// Initialize database
-	database, err := db.NewDatabase(cfg.DBPath)
-	if err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
-	}
+    // Setup Gin router
+    r := gin.Default()
 
-	// Initialize step client
-	stepClient := step.NewStepClient(
-		cfg.CAURL,
-		cfg.CARootFingerprint,
-		cfg.ProvisionerName,
-		cfg.ProvisionerPassword,
-	)
-	
-	log.Printf("StepClient initialized with fingerprint: %s", stepClient.CARootFingerprint)
+    // CORS middleware
+    r.Use(func(c *gin.Context) {
+        c.Header("Access-Control-Allow-Origin", "*")
+        c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+        c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
 
-	// Initialize handlers
-	handlers := api.NewHandlers(database, stepClient)
+        if c.Request.Method == "OPTIONS" {
+            c.AbortWithStatus(204)
+            return
+        }
 
-	// Setup Gin router
-	r := gin.Default()
+        c.Next()
+    })
 
-	// Add CORS middleware
-	r.Use(func(c *gin.Context) {
-		c.Header("Access-Control-Allow-Origin", "*")
-		c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		c.Header("Access-Control-Allow-Headers", "Content-Type, Authorization")
+    // Register API routes
+    api.RegisterRoutes(r, database)
 
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
+    // Determine port
+    port := os.Getenv("PORT")
+    if port == "" {
+        port = "8080"
+    }
 
-		c.Next()
-	})
-
-	// Setup routes
-	api.SetupRoutes(r, handlers)
-
-	// Start server
-	log.Printf("Starting server on port %d", cfg.Port)
-	if err := r.Run(fmt.Sprintf(":%d", cfg.Port)); err != nil {
-		log.Fatalf("Failed to start server: %v", err)
-	}
+    log.Printf("Starting server on port %s", port)
+    if err := r.Run(":" + port); err != nil {
+        log.Fatalf("Failed to start server: %v", err)
+    }
 }
