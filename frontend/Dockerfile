@@ -5,11 +5,11 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy only frontend package files
+# Install dependencies
 COPY frontend/package*.json ./
 RUN npm install
 
-# Copy frontend source
+# Copy source
 COPY frontend/ .
 
 # Build Next.js app
@@ -28,9 +28,11 @@ COPY --from=builder /app/.next/standalone ./
 # Copy static assets
 COPY --from=builder /app/.next/static ./.next/static
 
-# Copy public folder only if it exists
+# Create public folder (always exists)
 RUN mkdir -p public
-COPY --from=builder /app/public ./public 2>/dev/null || true
+
+# Copy public folder only if it exists in builder
+RUN if [ -d /app/public ]; then cp -r /app/public/* ./public/; fi
 
 EXPOSE 3000
 ENV PORT=3000
