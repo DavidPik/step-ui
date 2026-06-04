@@ -6,11 +6,11 @@ FROM golang:1.22-alpine AS builder
 WORKDIR /app
 
 # Copy Go module files
-COPY go.mod go.sum ./
+COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 
 # Copy backend source
-COPY . .
+COPY backend/ .
 
 # Build static binary
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o step-ui-backend .
