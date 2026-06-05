@@ -1,163 +1,138 @@
-'use client';
+'use client'
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react'
+import { apiClient, CASettings } from '@/src/lib/api'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 
 export default function SettingsPage() {
-  // CA CONFIG
-  const [caUrl, setCaUrl] = useState('https://ca.example.local');
-  const [rootFingerprint, setRootFingerprint] = useState(
-    '12:AB:34:CD:56:EF:78:90'
-  );
-  const [caStatus, setCaStatus] = useState<'Online' | 'Offline'>('Online');
+  const [settings, setSettings] = useState<CASettings | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [saving, setSaving] = useState(false)
 
-  // PROVISIONER CONFIG
-  const [provName, setProvName] = useState('web-services');
-  const [provPassword, setProvPassword] = useState('');
-  const [provType, setProvType] = useState<'ACME' | 'JWK' | 'SSHPOP'>('ACME');
+  // Local editable state
+  const [caUrl, setCaUrl] = useState('')
+  const [fingerprint, setFingerprint] = useState('')
+  const [provisionerName, setProvisionerName] = useState('')
+  const [directories, setDirectories] = useState<string[]>([])
 
-  // ACME DIRECTORIES
-  const [directories, setDirectories] = useState<string[]>([
-    'https://ca.example.local/acme/web-services/directory',
-  ]);
+  async function load() {
+    try {
+      setLoading(true)
+      const data = await apiClient.getCASettings()
+      setSettings(data)
 
-  const addDirectory = () => {
-    setDirectories([...directories, '']);
-  };
+      setCaUrl(data.ca_url)
+      setFingerprint(data.root_fingerprint)
+      setProvisionerName(data.provisioner_name)
+      setDirectories(data.acme_directories || [])
 
-  const updateDirectory = (index: number, value: string) => {
-    const updated = [...directories];
-    updated[index] = value;
-    setDirectories(updated);
-  };
+      setError(null)
+    } catch (err) {
+      setError('Failed to load CA settings')
+    } finally {
+      setLoading(false)
+    }
+  }
 
-  const removeDirectory = (index: number) => {
-    setDirectories(directories.filter((_, i) => i !== index));
-  };
+  useEffect(() => {
+    load()
+  }, [])
+
+  async function save() {
+    setSaving(true)
+    try {
+      await apiClient.updateCASettings({
+        ca_url: caUrl,
+        root_fingerprint: fingerprint,
+        provisioner_name: provisionerName,
+        acme_directories: directories,
+      })
+      await load()
+      alert('Settings saved')
+    } catch (err) {
+      alert('Failed to save settings')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function updateDirectory(index: number, value: string) {
+    const updated = [...directories]
+    updated[index] = value
+    setDirectories(updated)
+  }
+
+  function addDirectory() {
+    setDirectories([...directories, ''])
+  }
+
+  function removeDirectory(index: number) {
+    setDirectories(directories.filter((_, i) => i !== index))
+  }
+
+  if (loading) return <div className="p-6">Loading…</div>
+  if (error) return <div className="p-6 text-red-500">{error}</div>
 
   return (
-    <div className="page page-settings">
+    <div className="page page-settings space-y-6">
 
-      {/* CA CONFIGURATION */}
+      {/* CA SETTINGS */}
       <section className="card">
         <div className="card-header">
-          <h2 className="card-header-title">CA Configuration</h2>
+          <h2 className="card-header-title">CA Settings</h2>
         </div>
 
-        <div className="card-body">
-          <div className="detail-row">
-            <label><strong>CA URL:</strong></label>
-            <input
-              className="input"
-              value={caUrl}
-              onChange={(e) => setCaUrl(e.target.value)}
-            />
+        <div className="card-body space-y-4">
+
+          <div>
+            <Label>CA URL</Label>
+            <Input value={caUrl} onChange={e => setCaUrl(e.target.value)} />
           </div>
 
-          <div className="detail-row">
-            <label><strong>Root Fingerprint:</strong></label>
-            <input
-              className="input"
-              value={rootFingerprint}
-              onChange={(e) => setRootFingerprint(e.target.value)}
-            />
+          <div>
+            <Label>Root Fingerprint</Label>
+            <Input value={fingerprint} onChange={e => setFingerprint(e.target.value)} />
           </div>
 
-          <div className="detail-row">
-            <label><strong>CA Status:</strong></label>
-            <select
-              className="input"
-              value={caStatus}
-              onChange={(e) => setCaStatus(e.target.value as any)}
-            >
-              <option value="Online">Online</option>
-              <option value="Offline">Offline</option>
-            </select>
+          <div>
+            <Label>Provisioner Name</Label>
+            <Input value={provisionerName} onChange={e => setProvisionerName(e.target.value)} />
           </div>
 
-          <div className="detail-actions">
-            <button className="btn btn-primary">Save CA Configuration</button>
-          </div>
-        </div>
-      </section>
+          <div className="space-y-2">
+            <Label>ACME Directories</Label>
 
-      {/* PROVISIONER CONFIGURATION */}
-      <section className="card">
-        <div className="card-header">
-          <h2 className="card-header-title">Provisioner Configuration</h2>
-        </div>
+            {directories.map((dir, index) => (
+              <div key={index} className="flex gap-2">
+                <Input
+                  value={dir}
+                  placeholder="https://example.com/acme/directory"
+                  onChange={e => updateDirectory(index, e.target.value)}
+                />
+                <Button
+                  variant="destructive"
+                  onClick={() => removeDirectory(index)}
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
 
-        <div className="card-body">
-          <div className="detail-row">
-            <label><strong>Provisioner Name:</strong></label>
-            <input
-              className="input"
-              value={provName}
-              onChange={(e) => setProvName(e.target.value)}
-            />
-          </div>
-
-          <div className="detail-row">
-            <label><strong>Password:</strong></label>
-            <input
-              className="input"
-              type="password"
-              value={provPassword}
-              onChange={(e) => setProvPassword(e.target.value)}
-            />
+            <Button variant="secondary" onClick={addDirectory}>
+              Add Directory
+            </Button>
           </div>
 
-          <div className="detail-row">
-            <label><strong>Type:</strong></label>
-            <select
-              className="input"
-              value={provType}
-              onChange={(e) => setProvType(e.target.value as any)}
-            >
-              <option value="ACME">ACME</option>
-              <option value="JWK">JWK</option>
-              <option value="SSHPOP">SSHPOP</option>
-            </select>
-          </div>
-
-          <div className="detail-actions">
-            <button className="btn btn-primary">Save Provisioner Settings</button>
-          </div>
-        </div>
-      </section>
-
-      {/* ACME DIRECTORIES */}
-      <section className="card">
-        <div className="card-header">
-          <h2 className="card-header-title">ACME Directories</h2>
-        </div>
-
-        <div className="card-body">
-          {directories.map((dir, index) => (
-            <div className="detail-row" key={index}>
-              <input
-                className="input"
-                value={dir}
-                placeholder="https://example.com/acme/directory"
-                onChange={(e) => updateDirectory(index, e.target.value)}
-              />
-              <button
-                className="btn btn-danger btn-small"
-                onClick={() => removeDirectory(index)}
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-
-          <button className="btn btn-secondary" onClick={addDirectory}>
-            Add Directory
-          </button>
-
-          <div className="detail-actions">
-            <button className="btn btn-primary">Save ACME Directories</button>
+          <div className="pt-4">
+            <Button onClick={save} disabled={saving}>
+              {saving ? 'Saving…' : 'Save Settings'}
+            </Button>
           </div>
         </div>
       </section>
     </div>
-  );
+  )
 }
