@@ -34,7 +34,7 @@ func UpdateCASettings(database *db.Database) gin.HandlerFunc {
             return
         }
 
-        // Trim
+        // Trim whitespaces
         input.CAURL = strings.TrimSpace(input.CAURL)
         input.RootFingerprint = strings.TrimSpace(input.RootFingerprint)
         input.ProvisionerName = strings.TrimSpace(input.ProvisionerName)
