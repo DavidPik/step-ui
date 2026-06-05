@@ -1,103 +1,95 @@
-'use client';
+'use client'
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react'
+import { apiClient, AuditEvent } from '@/src/lib/api'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Label } from '@/components/ui/label'
 
-type Certificate = {
-  cn: string;
-  serial: string;
-  status: 'Active' | 'Expired' | 'Revoked';
-  issued: string;
-  expires: string;
-  provisioner: string;
-};
+// ------------------------------------------------------------
+// PAGE
+// ------------------------------------------------------------
 
-const CERTIFICATES: Certificate[] = [
-  {
-    cn: 'www.example.com',
-    serial: '1234567890ABCDEF',
-    status: 'Active',
-    issued: '2024-05-10',
-    expires: '2025-05-10',
-    provisioner: 'web-services',
-  },
-  {
-    cn: 'api.service.local',
-    serial: 'A1B2C3D4E5F6',
-    status: 'Active',
-    issued: '2024-05-11',
-    expires: '2025-05-11',
-    provisioner: 'web-services',
-  },
-  {
-    cn: 'test.domain.net',
-    serial: '98765432109876',
-    status: 'Revoked',
-    issued: '2024-05-12',
-    expires: '2025-05-12',
-    provisioner: 'bootstrap',
-  },
-  {
-    cn: 'old.example.org',
-    serial: '11223344556677',
-    status: 'Expired',
-    issued: '2023-05-10',
-    expires: '2024-05-10',
-    provisioner: 'bootstrap',
-  },
-];
+export default function AuditLogPage() {
+  const [events, setEvents] = useState<AuditEvent[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-export default function CertificatesPage() {
-  const [selected, setSelected] = useState<Certificate | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'All' | Certificate['status']>('All');
-  const [search, setSearch] = useState('');
+  // Filters
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [action, setAction] = useState('')
+  const [user, setUser] = useState('')
 
-  const filtered = CERTIFICATES.filter((c) => {
-    const matchesStatus = statusFilter === 'All' || c.status === statusFilter;
-    const matchesSearch =
-      c.cn.toLowerCase().includes(search.toLowerCase()) ||
-      c.serial.toLowerCase().includes(search.toLowerCase());
-    return matchesStatus && matchesSearch;
-  });
+  // Detail dialog
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [selected, setSelected] = useState<AuditEvent | null>(null)
+
+  async function load() {
+    try {
+      setLoading(true)
+      const res = await apiClient.getAuditLog({
+        from: from || undefined,
+        to: to || undefined,
+        action: action || undefined,
+        user: user || undefined,
+      })
+      setEvents(res.items)
+      setError(null)
+    } catch (err) {
+      setError('Failed to load audit log')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load()
+  }, [])
+
+  if (loading) return <div className="p-6">Loading…</div>
+  if (error) return <div className="p-6 text-red-500">{error}</div>
 
   return (
-    <div className="page page-certificates">
+    <div className="page page-audit-log space-y-6">
 
-      {/* ACTIONS + FILTERS */}
+      {/* FILTERS */}
       <section className="card">
-        <div className="card-body" style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-          
-          {/* ACTION BUTTONS */}
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button className="btn btn-primary">Issue Certificate</button>
-            <button className="btn btn-success">Sign CSR</button>
+        <div className="card-header">
+          <h2 className="card-header-title">Audit Log Filters</h2>
+        </div>
+
+        <div className="card-body grid grid-cols-1 md:grid-cols-4 gap-4">
+
+          <div>
+            <Label>From</Label>
+            <Input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)} />
           </div>
 
-          {/* FILTERS */}
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <label>Status:</label>
-            <select
-              className="input"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as any)}
-            >
-              <option value="All">All</option>
-              <option value="Active">Active</option>
-              <option value="Expired">Expired</option>
-              <option value="Revoked">Revoked</option>
-            </select>
+          <div>
+            <Label>To</Label>
+            <Input type="datetime-local" value={to} onChange={e => setTo(e.target.value)} />
+          </div>
 
-            <input
-              className="input"
-              placeholder="Search..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+          <div>
+            <Label>Action</Label>
+            <Input placeholder="certificate_issued" value={action} onChange={e => setAction(e.target.value)} />
+          </div>
 
-            <select className="input">
-              <option>Show 10</option>
-              <option>Show 25</option>
-              <option>Show 50</option>
-            </select>
+          <div>
+            <Label>User</Label>
+            <Input placeholder="system" value={user} onChange={e => setUser(e.target.value)} />
+          </div>
+
+          <div className="md:col-span-4">
+            <Button onClick={load}>Apply Filters</Button>
           </div>
         </div>
       </section>
@@ -105,47 +97,40 @@ export default function CertificatesPage() {
       {/* TABLE */}
       <section className="card card-table">
         <div className="card-header">
-          <h2 className="card-header-title">Certificates</h2>
+          <h2 className="card-header-title">Audit Log</h2>
         </div>
 
         <div className="card-body">
-          <table className="table">
+          <table className="table w-full">
             <thead>
               <tr>
-                <th>Common Name</th>
-                <th>Serial</th>
-                <th>Status</th>
-                <th>Issued</th>
-                <th>Expires</th>
-                <th>Actions</th>
+                <th>Timestamp</th>
+                <th>Action</th>
+                <th>User</th>
+                <th>Details</th>
+                <th>IP</th>
+                <th></th>
               </tr>
             </thead>
 
             <tbody>
-              {filtered.map((c) => (
-                <tr key={c.serial}>
-                  <td>{c.cn}</td>
-                  <td>{c.serial}</td>
-                  <td
-                    className={
-                      c.status === 'Active'
-                        ? 'badge badge-ok'
-                        : c.status === 'Revoked'
-                        ? 'badge badge-danger'
-                        : 'badge'
-                    }
-                  >
-                    {c.status}
-                  </td>
-                  <td>{c.issued}</td>
-                  <td>{c.expires}</td>
+              {events.map(ev => (
+                <tr key={ev.id}>
+                  <td>{new Date(ev.timestamp).toLocaleString()}</td>
+                  <td>{ev.action}</td>
+                  <td>{ev.user}</td>
+                  <td>{ev.details}</td>
+                  <td>{ev.ip}</td>
                   <td>
-                    <button
-                      className="btn btn-small btn-primary"
-                      onClick={() => setSelected(c)}
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setSelected(ev)
+                        setDetailOpen(true)
+                      }}
                     >
                       View
-                    </button>
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -154,36 +139,47 @@ export default function CertificatesPage() {
         </div>
       </section>
 
-      {/* DETAILS */}
-      {selected && (
-        <section className="card">
-          <div className="card-header">
-            <h2 className="card-header-title">Certificate Details</h2>
-          </div>
-
-          <div className="card-body">
-            <div className="detail-row"><strong>Common Name:</strong> {selected.cn}</div>
-            <div className="detail-row"><strong>Serial:</strong> {selected.serial}</div>
-            <div className="detail-row"><strong>Status:</strong> {selected.status}</div>
-            <div className="detail-row"><strong>Issued:</strong> {selected.issued}</div>
-            <div className="detail-row"><strong>Expires:</strong> {selected.expires}</div>
-            <div className="detail-row"><strong>Provisioner:</strong> {selected.provisioner}</div>
-            <div className="detail-row"><strong>Fingerprint:</strong> 12:AB:34:CD:56:EF:78:90</div>
-
-            <div className="detail-row">
-              <strong>Download:</strong>
-              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.25rem' }}>
-                <a href="#" className="link">Certificate (PEM)</a>
-                <a href="#" className="link">Chain (PEM)</a>
-              </div>
-            </div>
-
-            <div className="detail-actions">
-              <button className="btn btn-danger">Revoke Certificate</button>
-            </div>
-          </div>
-        </section>
-      )}
+      {/* DETAIL DIALOG */}
+      <AuditDetailDialog
+        open={detailOpen}
+        event={selected}
+        onClose={() => setDetailOpen(false)}
+      />
     </div>
-  );
+  )
+}
+
+// ------------------------------------------------------------
+// DETAIL DIALOG
+// ------------------------------------------------------------
+
+function AuditDetailDialog({ open, event, onClose }: {
+  open: boolean
+  event: AuditEvent | null
+  onClose: () => void
+}) {
+  if (!event) return null
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Audit Event Details</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-2">
+          <div><strong>ID:</strong> {event.id}</div>
+          <div><strong>Timestamp:</strong> {new Date(event.timestamp).toLocaleString()}</div>
+          <div><strong>Action:</strong> {event.action}</div>
+          <div><strong>User:</strong> {event.user}</div>
+          <div><strong>IP:</strong> {event.ip}</div>
+          <div><strong>Details:</strong> {event.details}</div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }
