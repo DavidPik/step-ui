@@ -1,143 +1,172 @@
-import axios, { AxiosInstance } from 'axios'
+import axios from 'axios'
 
-// Create a function to get API client with dynamic baseURL
-let cachedApiUrl: string | null = null
-
-async function getApiUrl(): Promise<string> {
-  if (cachedApiUrl) {
-    return cachedApiUrl
-  }
-
-  const response = await fetch('/config')
-  if (!response.ok) {
-    throw new Error(`Failed to fetch config: ${response.status}`)
-  }
-  const data = await response.json()
-  cachedApiUrl = data.apiUrl
-  return cachedApiUrl as string
-}
-
-export async function createApiClient(): Promise<AxiosInstance> {
-  const apiUrl = await getApiUrl()
-  return axios.create({
-    baseURL: apiUrl,
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  })
-}
-
-// Legacy export for backward compatibility (will be deprecated)
+// Jediný API klient
 const api = axios.create({
+  baseURL: '/api',
   headers: {
     'Content-Type': 'application/json',
   },
 })
 
-// Add interceptor to set baseURL dynamically
-api.interceptors.request.use(async (config: any) => {
-  if (!config.baseURL) {
-    config.baseURL = await getApiUrl()
-  }
-  return config
-})
+// -----------------------------
+// Typy odpovídající backendu
+// -----------------------------
 
-export interface Certificate {
+export interface CertificateItem {
   id: string
-  cn: string
-  sans: string[]
+  common_name: string
+  dns_names: string
+  serial: string
+  not_before: string
   not_after: string
+}
+
+export interface CertificateDetail {
+  id: string
+  common_name: string
+  dns_names: string
+  serial: string
+  not_before: string
+  not_after: string
+  certificate_pem: string
+  private_key_pem: string
+  ca_chain_pem: string
+}
+
+export interface IssueCertificateRequest {
+  common_name: string
+  dns_names: string[]
+}
+
+export interface IssueCertificateResponse {
   status: string
-  key_strategy: string
-  created_at: string
-  updated_at: string
+  id: string
+  common_name: string
+  serial: string
+  not_before: string
+  not_after: string
+  certificate: string
+  private_key: string
+  ca_bundle: string
 }
 
-export interface IssueRequest {
-  cn: string
-  sans: string[]
-  not_after_days: number
-  format: 'pem' | 'pfx'
-  pfx_password?: string
-}
-
-export interface SignCSRRequest {
-  csr_pem: string
-  not_after_days: number
-}
-
-export interface CertBundle {
-  data: string
-  filename: string
-  mime_type: string
+export interface RevokeRequest {
+  serial: string
 }
 
 export interface CASettings {
   ca_url: string
   root_fingerprint: string
+  provisioner_name: string
   acme_directories: string[]
 }
 
-export const certificateApi = {
-  // Issue a new certificate
-  issueCertificate: async (data: IssueRequest) => {
-    const client = await createApiClient()
-    const response = await client.post('/api/certs/issue', data)
-    return response.data
+export interface Provisioner {
+  name: string
+  type: string
+}
+
+export interface AuditEvent {
+  id: string
+  timestamp: string
+  action: string
+  user: string
+  details: string
+  ip: string
+}
+
+// -----------------------------
+// API volání
+// -----------------------------
+
+export const apiClient = {
+  //
+  // CA SETTINGS
+  //
+  getCASettings: async (): Promise<CASettings> => {
+    const res = await api.get('/settings')
+    return res.data
   },
 
-  // Sign a CSR
-  signCSR: async (data: SignCSRRequest) => {
-    const client = await createApiClient()
-    const response = await client.post('/api/certs/sign-csr', data)
-    return response.data
+  updateCASettings: async (data: CASettings) => {
+    const res = await api.put('/settings', data)
+    return res.data
   },
 
-  // List certificates
-  listCertificates: async (params?: {
-    limit?: number
-    offset?: number
-    status?: string
+  //
+  // PROVISIONERS
+  //
+  listProvisioners: async (): Promise<{ items: Provisioner[] }> => {
+    const res = await api.get('/provisioners')
+    return res.data
+  },
+
+  getSelectedProvisioner: async (): Promise<{ name: string }> => {
+    const res = await api.get('/provisioners/selected')
+    return res.data
+  },
+
+  selectProvisioner: async (name: string, secret: string) => {
+    const res = await api.post('/provisioners/select', { name, secret })
+    return res.data
+  },
+
+  createProvisioner: async (data: {
+    name: string
+    type: string
+    secret?: string
   }) => {
-    const client = await createApiClient()
-    const response = await client.get('/api/certs', { params })
-    return response.data
+    const res = await api.post('/provisioners', data)
+    return res.data
   },
 
-  // Get a specific certificate
-  getCertificate: async (id: string) => {
-    const client = await createApiClient()
-    const response = await client.get(`/api/certs/${id}`)
-    return response.data
+  deleteProvisioner: async (name: string) => {
+    const res = await api.delete(`/provisioners/${name}`)
+    return res.data
   },
 
-  // Renew a certificate
-  renewCertificate: async (id: string) => {
-    const client = await createApiClient()
-    const response = await client.post(`/api/certs/${id}/renew`)
-    return response.data
+  //
+  // CERTIFICATES
+  //
+  listCertificates: async (): Promise<{ items: CertificateItem[] }> => {
+    const res = await api.get('/certificates')
+    return res.data
   },
 
-  // Revoke a certificate
-  revokeCertificate: async (id: string) => {
-    const client = await createApiClient()
-    const response = await client.post(`/api/certs/${id}/revoke`)
-    return response.data
+  getCertificate: async (id: string): Promise<CertificateDetail> => {
+    const res = await api.get(`/certificates/${id}`)
+    return res.data
   },
 
-  // Get CA settings
-  getCASettings: async () => {
-    const client = await createApiClient()
-    const response = await client.get('/api/settings/ca')
-    return response.data
+  issueCertificate: async (
+    data: IssueCertificateRequest
+  ): Promise<IssueCertificateResponse> => {
+    const res = await api.post('/certificates/issue', data)
+    return res.data
   },
 
-  // Health check
-  health: async () => {
-    const client = await createApiClient()
-    const response = await client.get('/health')
-    return response.data
+  revokeCertificate: async (serial: string) => {
+    const res = await api.post('/certificates/revoke', { serial })
+    return res.data
+  },
+
+  downloadCertificatePackage: (id: string) => {
+    // Vrací URL pro <a href>
+    return `/api/certificates/${id}/download`
+  },
+
+  //
+  // AUDIT LOG
+  //
+  getAuditLog: async (params?: {
+    from?: string
+    to?: string
+    action?: string
+    user?: string
+  }): Promise<{ items: AuditEvent[] }> => {
+    const res = await api.get('/audit', { params })
+    return res.data
   },
 }
 
-export default api
+export default apiClient
