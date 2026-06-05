@@ -8,24 +8,32 @@ import (
 func RegisterRoutes(r *gin.Engine, database *db.Database) {
     api := r.Group("/api")
 
-    // CA Settings
+    //
+    // CA SETTINGS
+    //
     api.GET("/settings", GetCASettings(database))
     api.PUT("/settings", UpdateCASettings(database))
 
-    // Provisioners
+    //
+    // PROVISIONERS
+    //
     api.GET("/provisioners", ListProvisioners(database))
-    api.POST("/provisioners/select", SelectProvisioner(database))
     api.GET("/provisioners/selected", GetSelectedProvisioner(database))
+    api.POST("/provisioners/select", SelectProvisioner(database))
     api.POST("/provisioners", CreateProvisioner(database))
     api.DELETE("/provisioners/:name", DeleteProvisioner(database))
 
-    // Certificates
+    //
+    // CERTIFICATES
+    //
     api.GET("/certificates", ListCertificates(database))
     api.GET("/certificates/:id", GetCertificate(database))
-    api.GET("/certificates/:id/download", DownloadCertificatePackage(database))
     api.POST("/certificates/issue", IssueCertificate(database))
     api.POST("/certificates/revoke", RevokeCertificate(database))
+    api.GET("/certificates/:id/download", DownloadCertificatePackage(database))
 
-    // Audit log
+    //
+    // AUDIT LOG
+    //
     api.GET("/audit", GetAuditEvents(database))
 }
