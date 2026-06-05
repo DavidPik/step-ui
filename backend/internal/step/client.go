@@ -88,6 +88,46 @@ func (c *StepClient) ListProvisioners() ([]Provisioner, error) {
     return out.Provisioners, nil
 }
 
+func (c *StepClient) CreateProvisioner(payload map[string]interface{}) error {
+    url := fmt.Sprintf("%s/provisioners", strings.TrimRight(c.CAURL, "/"))
+
+    body, _ := json.Marshal(payload)
+    req, _ := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
+    req.Header.Set("Content-Type", "application/json")
+
+    resp, err := c.httpClient.Do(req)
+    if err != nil {
+        return fmt.Errorf("request to step-ca /provisioners failed: %w", err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+        b, _ := io.ReadAll(resp.Body)
+        return fmt.Errorf("step-ca /provisioners returned %d: %s", resp.StatusCode, string(b))
+    }
+
+    return nil
+}
+
+func (c *StepClient) DeleteProvisioner(name string) error {
+    url := fmt.Sprintf("%s/provisioners/%s", strings.TrimRight(c.CAURL, "/"), name)
+
+    req, _ := http.NewRequest(http.MethodDelete, url, nil)
+
+    resp, err := c.httpClient.Do(req)
+    if err != nil {
+        return fmt.Errorf("request to step-ca DELETE /provisioners/%s failed: %w", name, err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        b, _ := io.ReadAll(resp.Body)
+        return fmt.Errorf("step-ca DELETE /provisioners/%s returned %d: %s", name, resp.StatusCode, string(b))
+    }
+
+    return nil
+}
+
 // ------------------------------------------------------------
 // Vydání certifikátu
 // ------------------------------------------------------------
