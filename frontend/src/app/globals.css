@@ -1,59 +1,245 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+:root {
+  --color-bg: #f3f4f6;
+  --color-surface: #ffffff;
+  --color-border: #e5e7eb;
+  --color-text: #111827;
+  --color-muted: #6b7280;
+  --color-primary: #2563eb;
+  --color-success: #16a34a;
+  --color-danger: #dc2626;
+  --color-info: #0ea5e9;
+  --radius-md: 0.5rem;
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 4px 6px rgba(15, 23, 42, 0.08);
+}
 
-@layer base {
-  :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 221.2 83.2% 53.3%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96%;
-    --secondary-foreground: 222.2 84% 4.9%;
-    --muted: 210 40% 96%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96%;
-    --accent-foreground: 222.2 84% 4.9%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 221.2 83.2% 53.3%;
-    --radius: 0.5rem;
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body.app-body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    sans-serif;
+  background-color: var(--color-bg);
+  color: var(--color-text);
+}
+
+/* Layout */
+
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background-color: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+}
+
+.app-nav {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0.75rem 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-nav-left {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.app-nav-link {
+  font-size: 0.95rem;
+  color: var(--color-muted);
+  text-decoration: none;
+  padding-bottom: 0.25rem;
+  border-bottom: 2px solid transparent;
+}
+
+.app-nav-link:hover {
+  color: var(--color-text);
+}
+
+.app-nav-link-active {
+  color: var(--color-text);
+  border-bottom-color: var(--color-primary);
+}
+
+.app-nav-right {
+  display: flex;
+  align-items: baseline;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+}
+
+.app-nav-provisioner-label {
+  color: var(--color-muted);
+}
+
+.app-nav-provisioner-value {
+  font-weight: 600;
+}
+
+.app-main {
+  max-width: 1200px;
+  margin: 1.5rem auto 2rem;
+  padding: 0 1.5rem;
+}
+
+/* Page */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+/* Cards */
+
+.cards-row {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.card {
+  background-color: var(--color-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-sm);
+  padding: 1rem 1.25rem;
+}
+
+.card-status {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.card-title {
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+
+.card-value {
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+.card-status-ok .card-value {
+  color: var(--color-success);
+}
+
+.card-status-danger .card-value {
+  color: var(--color-danger);
+}
+
+.card-status-info .card-value {
+  color: var(--color-info);
+}
+
+/* Grid */
+
+.grid-two-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: 1rem;
+}
+
+/* Tables */
+
+.card-table {
+  padding: 0;
+}
+
+.card-header {
+  padding: 0.9rem 1.1rem;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.card-header-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.card-body {
+  padding: 0.9rem 1.1rem 1.1rem;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.table thead {
+  background-color: #f9fafb;
+}
+
+.table th,
+.table td {
+  padding: 0.5rem 0.5rem;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table th {
+  font-weight: 500;
+  color: var(--color-muted);
+}
+
+/* Badges */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.badge-ok {
+  background-color: #dcfce7;
+  color: #166534;
+}
+
+.badge-danger {
+  background-color: #fee2e2;
+  color: #b91c1c;
+}
+
+/* Responsive */
+
+@media (max-width: 900px) {
+  .cards-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 217.2 91.2% 59.8%;
-    --primary-foreground: 222.2 84% 4.9%;
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 224.3 76.3% 94.1%;
+  .grid-two-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .app-nav {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
   }
 }
 
-@layer base {
-  * {
-    @apply border-border;
-  }
-  body {
-    @apply bg-background text-foreground;
+@media (max-width: 600px) {
+  .cards-row {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
