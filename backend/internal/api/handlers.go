@@ -110,6 +110,82 @@ func SelectProvisioner(database *db.Database) gin.HandlerFunc {
     }
 }
 
+func CreateProvisioner(database *db.Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        var input struct {
+            Name   string `json:"name"`
+            Type   string `json:"type"`
+            Secret string `json:"secret"`
+        }
+
+        if err := c.ShouldBindJSON(&input); err != nil {
+            c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
+            return
+        }
+
+        settings, err := database.GetCASettings()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load CA settings"})
+            return
+        }
+
+        client := step.NewClientFromSettings(settings)
+
+        // Připravíme payload pro step-ca
+        payload := map[string]interface{}{
+            "name": input.Name,
+            "type": input.Type,
+        }
+
+        if input.Type == "JWK" {
+            payload["password"] = input.Secret
+        }
+
+        // Zavoláme step-ca API
+        if err := client.CreateProvisioner(payload); err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        // Audit log
+        _ = database.LogAuditEvent(&db.AuditEvent{
+            User:    "system",
+            Action:  "provisioner_created",
+            Details: "Provisioner: " + input.Name,
+        })
+
+        c.JSON(http.StatusOK, gin.H{"status": "created"})
+    }
+}
+
+func DeleteProvisioner(database *db.Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        name := c.Param("name")
+
+        settings, err := database.GetCASettings()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load CA settings"})
+            return
+        }
+
+        client := step.NewClientFromSettings(settings)
+
+        if err := client.DeleteProvisioner(name); err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+            return
+        }
+
+        // Audit log
+        _ = database.LogAuditEvent(&db.AuditEvent{
+            User:    "system",
+            Action:  "provisioner_deleted",
+            Details: "Provisioner: " + name,
+        })
+
+        c.JSON(http.StatusOK, gin.H{"status": "deleted"})
+    }
+}
+
 // ------------------------------------------------------------
 // PROVISIONER STATUS
 // ------------------------------------------------------------
