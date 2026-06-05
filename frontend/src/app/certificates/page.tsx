@@ -1,79 +1,89 @@
-'use client';
+'use client'
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react'
+import { apiClient, CertificateItem, CertificateDetail } from '@/src/lib/api'
+import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Textarea } from '@/components/ui/textarea'
+import { downloadFile } from '@/src/lib/utils'
 
-type Certificate = {
-  cn: string;
-  serial: string;
-  status: 'Active' | 'Expired' | 'Revoked';
-  issued: string;
-  expires: string;
-  provisioner: string;
-};
-
-const CERTIFICATES: Certificate[] = [
-  {
-    cn: 'www.example.com',
-    serial: '1234567890ABCDEF',
-    status: 'Active',
-    issued: '2024-05-10',
-    expires: '2025-05-10',
-    provisioner: 'web-services',
-  },
-  {
-    cn: 'api.service.local',
-    serial: 'A1B2C3D4E5F6',
-    status: 'Active',
-    issued: '2024-05-11',
-    expires: '2025-05-11',
-    provisioner: 'web-services',
-  },
-  {
-    cn: 'test.domain.net',
-    serial: '98765432109876',
-    status: 'Revoked',
-    issued: '2024-05-12',
-    expires: '2025-05-12',
-    provisioner: 'bootstrap',
-  },
-  {
-    cn: 'old.example.org',
-    serial: '11223344556677',
-    status: 'Expired',
-    issued: '2023-05-10',
-    expires: '2024-05-10',
-    provisioner: 'bootstrap',
-  },
-];
+// ------------------------------------------------------------
+// PAGE
+// ------------------------------------------------------------
 
 export default function CertificatesPage() {
-  const [selected, setSelected] = useState<Certificate | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'All' | Certificate['status']>('All');
-  const [search, setSearch] = useState('');
+  const [certs, setCerts] = useState<CertificateItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  const filtered = CERTIFICATES.filter((c) => {
-    const matchesStatus = statusFilter === 'All' || c.status === statusFilter;
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Expired' | 'Revoked'>('All')
+
+  // Dialog states
+  const [issueOpen, setIssueOpen] = useState(false)
+  const [csrOpen, setCsrOpen] = useState(false)
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [revokeOpen, setRevokeOpen] = useState(false)
+
+  const [selectedCert, setSelectedCert] = useState<CertificateDetail | null>(null)
+
+  async function load() {
+    try {
+      setLoading(true)
+      const res = await apiClient.listCertificates()
+      setCerts(res.items)
+      setError(null)
+    } catch (err) {
+      setError('Failed to load certificates')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    load()
+  }, [])
+
+  if (loading) return <div className="p-6">Loading…</div>
+  if (error) return <div className="p-6 text-red-500">{error}</div>
+
+  const filtered = certs.filter((c) => {
+    const matchesStatus =
+      statusFilter === 'All' ||
+      (statusFilter === 'Expired' && new Date(c.not_after) < new Date()) ||
+      (statusFilter === 'Revoked' && c.status === 'revoked') ||
+      (statusFilter === 'Active' && new Date(c.not_after) >= new Date() && c.status !== 'revoked')
+
     const matchesSearch =
-      c.cn.toLowerCase().includes(search.toLowerCase()) ||
-      c.serial.toLowerCase().includes(search.toLowerCase());
-    return matchesStatus && matchesSearch;
-  });
+      c.common_name.toLowerCase().includes(search.toLowerCase()) ||
+      c.serial.toLowerCase().includes(search.toLowerCase())
+
+    return matchesStatus && matchesSearch
+  })
 
   return (
-    <div className="page page-certificates">
+    <div className="page page-certificates space-y-6">
 
       {/* ACTIONS + FILTERS */}
       <section className="card">
-        <div className="card-body" style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap' }}>
-          
+        <div className="card-body flex flex-wrap justify-between gap-4">
+
           {/* ACTION BUTTONS */}
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button className="btn btn-primary">Issue Certificate</button>
-            <button className="btn btn-success">Sign CSR</button>
+          <div className="flex gap-2">
+            <Button onClick={() => setIssueOpen(true)}>Issue Certificate</Button>
+            <Button variant="secondary" onClick={() => setCsrOpen(true)}>Sign CSR</Button>
           </div>
 
           {/* FILTERS */}
-          <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="flex gap-2 items-center flex-wrap">
             <label>Status:</label>
             <select
               className="input"
@@ -86,9 +96,8 @@ export default function CertificatesPage() {
               <option value="Revoked">Revoked</option>
             </select>
 
-            <input
-              className="input"
-              placeholder="Search..."
+            <Input
+              placeholder="Search CN or Serial…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
@@ -109,7 +118,7 @@ export default function CertificatesPage() {
         </div>
 
         <div className="card-body">
-          <table className="table">
+          <table className="table w-full">
             <thead>
               <tr>
                 <th>Common Name</th>
@@ -124,28 +133,30 @@ export default function CertificatesPage() {
             <tbody>
               {filtered.map((c) => (
                 <tr key={c.serial}>
-                  <td>{c.cn}</td>
+                  <td>{c.common_name}</td>
                   <td>{c.serial}</td>
-                  <td
-                    className={
-                      c.status === 'Active'
-                        ? 'badge badge-ok'
-                        : c.status === 'Revoked'
-                        ? 'badge badge-danger'
-                        : 'badge'
-                    }
-                  >
-                    {c.status}
-                  </td>
-                  <td>{c.issued}</td>
-                  <td>{c.expires}</td>
                   <td>
-                    <button
-                      className="btn btn-small btn-primary"
-                      onClick={() => setSelected(c)}
+                    {c.status === 'revoked' ? (
+                      <span className="badge badge-danger">Revoked</span>
+                    ) : new Date(c.not_after) < new Date() ? (
+                      <span className="badge">Expired</span>
+                    ) : (
+                      <span className="badge badge-ok">Active</span>
+                    )}
+                  </td>
+                  <td>{new Date(c.not_before).toLocaleDateString()}</td>
+                  <td>{new Date(c.not_after).toLocaleDateString()}</td>
+                  <td>
+                    <Button
+                      size="sm"
+                      onClick={async () => {
+                        const detail = await apiClient.getCertificate(c.id)
+                        setSelectedCert(detail)
+                        setDetailOpen(true)
+                      }}
                     >
                       View
-                    </button>
+                    </Button>
                   </td>
                 </tr>
               ))}
@@ -154,36 +165,249 @@ export default function CertificatesPage() {
         </div>
       </section>
 
-      {/* DETAILS */}
-      {selected && (
-        <section className="card">
-          <div className="card-header">
-            <h2 className="card-header-title">Certificate Details</h2>
-          </div>
+      {/* DIALOGS */}
+      <IssueCertificateDialog
+        open={issueOpen}
+        onClose={() => setIssueOpen(false)}
+        onIssued={load}
+      />
 
-          <div className="card-body">
-            <div className="detail-row"><strong>Common Name:</strong> {selected.cn}</div>
-            <div className="detail-row"><strong>Serial:</strong> {selected.serial}</div>
-            <div className="detail-row"><strong>Status:</strong> {selected.status}</div>
-            <div className="detail-row"><strong>Issued:</strong> {selected.issued}</div>
-            <div className="detail-row"><strong>Expires:</strong> {selected.expires}</div>
-            <div className="detail-row"><strong>Provisioner:</strong> {selected.provisioner}</div>
-            <div className="detail-row"><strong>Fingerprint:</strong> 12:AB:34:CD:56:EF:78:90</div>
+      <SignCSRDialog
+        open={csrOpen}
+        onClose={() => setCsrOpen(false)}
+        onSigned={load}
+      />
 
-            <div className="detail-row">
-              <strong>Download:</strong>
-              <div style={{ display: 'flex', gap: '1rem', marginTop: '0.25rem' }}>
-                <a href="#" className="link">Certificate (PEM)</a>
-                <a href="#" className="link">Chain (PEM)</a>
-              </div>
-            </div>
+      <CertificateDetailDialog
+        open={detailOpen}
+        cert={selectedCert}
+        onClose={() => setDetailOpen(false)}
+        onRevoke={() => {
+          setDetailOpen(false)
+          setRevokeOpen(true)
+        }}
+      />
 
-            <div className="detail-actions">
-              <button className="btn btn-danger">Revoke Certificate</button>
-            </div>
-          </div>
-        </section>
-      )}
+      <RevokeCertificateDialog
+        open={revokeOpen}
+        cert={selectedCert}
+        onClose={() => setRevokeOpen(false)}
+        onRevoked={load}
+      />
     </div>
-  );
+  )
+}
+
+// ------------------------------------------------------------
+// ISSUE CERTIFICATE DIALOG
+// ------------------------------------------------------------
+
+function IssueCertificateDialog({ open, onClose, onIssued }: {
+  open: boolean
+  onClose: () => void
+  onIssued: () => void
+}) {
+  const [cn, setCn] = useState('')
+  const [dns, setDns] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function handleIssue() {
+    setLoading(true)
+    try {
+      await apiClient.issueCertificate({
+        common_name: cn,
+        dns_names: dns.split(',').map(s => s.trim()).filter(Boolean),
+      })
+      onIssued()
+      onClose()
+    } catch (err) {
+      alert('Failed to issue certificate')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Issue Certificate</DialogTitle></DialogHeader>
+
+        <div className="space-y-4">
+          <div>
+            <Label>Common Name</Label>
+            <Input value={cn} onChange={e => setCn(e.target.value)} />
+          </div>
+
+          <div>
+            <Label>DNS Names (comma separated)</Label>
+            <Input value={dns} onChange={e => setDns(e.target.value)} />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleIssue} disabled={loading}>
+            {loading ? 'Issuing…' : 'Issue'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ------------------------------------------------------------
+// SIGN CSR DIALOG
+// ------------------------------------------------------------
+
+function SignCSRDialog({ open, onClose, onSigned }: {
+  open: boolean
+  onClose: () => void
+  onSigned: () => void
+}) {
+  const [csr, setCsr] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function handleSign() {
+    setLoading(true)
+    try {
+      await apiClient.signCSR({
+        csr_pem: csr,
+        not_after_days: 365,
+      })
+      onSigned()
+      onClose()
+    } catch (err) {
+      alert('Failed to sign CSR')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Sign CSR</DialogTitle></DialogHeader>
+
+        <div>
+          <Label>CSR (PEM)</Label>
+          <Textarea rows={8} value={csr} onChange={e => setCsr(e.target.value)} />
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={handleSign} disabled={loading}>
+            {loading ? 'Signing…' : 'Sign'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ------------------------------------------------------------
+// CERTIFICATE DETAIL DIALOG
+// ------------------------------------------------------------
+
+function CertificateDetailDialog({ open, cert, onClose, onRevoke }: {
+  open: boolean
+  cert: CertificateDetail | null
+  onClose: () => void
+  onRevoke: () => void
+}) {
+  if (!cert) return null
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl">
+        <DialogHeader><DialogTitle>Certificate Details</DialogTitle></DialogHeader>
+
+        <div className="space-y-2">
+          <div><strong>Common Name:</strong> {cert.common_name}</div>
+          <div><strong>Serial:</strong> {cert.serial}</div>
+          <div><strong>Issued:</strong> {new Date(cert.not_before).toLocaleString()}</div>
+          <div><strong>Expires:</strong> {new Date(cert.not_after).toLocaleString()}</div>
+
+          <div>
+            <strong>Download:</strong>
+            <div className="flex gap-4 mt-1">
+              <Button
+                variant="outline"
+                onClick={() => downloadFile(cert.certificate_pem, `${cert.common_name}.crt`, 'application/x-pem-file')}
+              >
+                Certificate (PEM)
+              </Button>
+
+              <Button
+                variant="outline"
+                onClick={() => downloadFile(cert.ca_chain_pem, `${cert.common_name}-chain.crt`, 'application/x-pem-file')}
+              >
+                Chain (PEM)
+              </Button>
+
+              <Button
+                variant="outline"
+                onClick={() => {
+                  window.location.href = apiClient.downloadCertificatePackage(cert.id)
+                }}
+              >
+                ZIP Package
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="destructive" onClick={onRevoke}>Revoke</Button>
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ------------------------------------------------------------
+// REVOKE CERTIFICATE DIALOG
+// ------------------------------------------------------------
+
+function RevokeCertificateDialog({ open, cert, onClose, onRevoked }: {
+  open: boolean
+  cert: CertificateDetail | null
+  onClose: () => void
+  onRevoked: () => void
+}) {
+  const [loading, setLoading] = useState(false)
+
+  if (!cert) return null
+
+  async function handleRevoke() {
+    setLoading(true)
+    try {
+      await apiClient.revokeCertificate(cert.serial)
+      onRevoked()
+      onClose()
+    } catch (err) {
+      alert('Failed to revoke certificate')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Revoke Certificate</DialogTitle></DialogHeader>
+
+        <p>
+          Are you sure you want to revoke certificate <strong>{cert.common_name}</strong>?
+        </p>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button variant="destructive" onClick={handleRevoke} disabled={loading}>
+            {loading ? 'Revoking…' : 'Revoke'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
 }
