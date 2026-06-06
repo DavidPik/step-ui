@@ -1,198 +1,153 @@
-import axios from 'axios'
+import axios from "axios";
 
+// ---------------------------------------------------------
 // Axios instance
-const api = axios.create({
-  baseURL: '/api',
-  headers: {
-    'Content-Type': 'application/json',
-  },
-})
+// ---------------------------------------------------------
 
-// -----------------------------
-// Types
-// -----------------------------
+const api = axios.create({
+  baseURL: "/api",
+  headers: {
+    "Content-Type": "application/json",
+  },
+});
+
+// ---------------------------------------------------------
+// Types (sjednocené s backendem)
+// ---------------------------------------------------------
+
+export interface Provisioner {
+  name: string;
+  type: string;
+  acme_directories?: string[];
+}
 
 export interface CertificateItem {
-  id: string
-  common_name: string
-  dns_names: string
-  serial: string
-  not_before: string
-  not_after: string
+  id: string;
+  common_name: string;
+  dns_names: string[];
+  serial: string;
+  not_before: string;
+  not_after: string;
 }
 
 export interface CertificateDetail {
-  id: string
-  common_name: string
-  dns_names: string
-  serial: string
-  not_before: string
-  not_after: string
-  certificate_pem: string
-  private_key_pem: string
-  ca_chain_pem: string
+  id: string;
+  common_name: string;
+  dns_names: string[];
+  serial: string;
+  not_before: string;
+  not_after: string;
+  certificate_pem: string;
+  ca_bundle_pem: string;
 }
 
 export interface IssueCertificateRequest {
-  common_name: string
-  dns_names: string[]
+  common_name: string;
+  dns_names: string[];
+  not_after_days?: number;
 }
 
 export interface IssueCertificateResponse {
-  status: string
-  id: string
-  common_name: string
-  serial: string
-  not_before: string
-  not_after: string
-  certificate: string
-  private_key: string
-  ca_bundle: string
-}
-
-export interface RevokeRequest {
-  serial: string
-}
-
-export interface CASettings {
-  ca_url: string
-  root_fingerprint: string
-  provisioner_name: string
-  acme_directories: string[]
-}
-
-export interface Provisioner {
-  name: string
-  type: string
-  acme_directories?: string[]
-  is_active?: boolean
+  id: string;
+  serial: string;
+  common_name: string;
+  not_before: string;
+  not_after: string;
+  certificate_pem: string;
+  ca_bundle_pem: string;
 }
 
 export interface AuditEvent {
-  id: string
-  timestamp: string
-  action: string
-  user: string
-  details: string
-  ip: string
+  id: string;
+  timestamp: string;
+  action: string;
+  user: string;
+  details: string;
+  ip: string;
 }
 
-// -----------------------------
-// API client
-// -----------------------------
+// ---------------------------------------------------------
+// API Client (kompatibilní s backendem)
+// ---------------------------------------------------------
 
 export const apiClient = {
-  //
-  // CA SETTINGS
-  //
-  getCASettings: async (): Promise<CASettings> => {
-    const res = await api.get('/settings')
-    return res.data
-  },
-
-  updateCASettings: async (data: CASettings) => {
-    const res = await api.put('/settings', data)
-    return res.data
-  },
-
-  //
+  // -----------------------------------------------------
   // PROVISIONERS
-  //
+  // -----------------------------------------------------
+
   listProvisioners: async (): Promise<{ items: Provisioner[] }> => {
-    const res = await api.get('/provisioners')
-    return res.data
+    const res = await api.get("/provisioners");
+    return res.data;
   },
 
-  getSelectedProvisioner: async (): Promise<{ name: string }> => {
-    const res = await api.get('/provisioners/selected')
-    return res.data
-  },
-
-  getProvisioner: async (name: string): Promise<Provisioner> => {
-    const res = await api.get(`/provisioners/${encodeURIComponent(name)}`)
-    return res.data
-  },
-
-  /**
-   * Create a provisioner.
-   * payload may include secret (frontend will prompt user when required).
-   */
   createProvisioner: async (data: {
-    name: string
-    type: string
-    secret?: string
-    acme_directories?: string[]
+    name: string;
+    type: string;
+    secret?: string;
+    acme_directories?: string[];
   }) => {
-    const res = await api.post('/provisioners', data)
-    return res.data
+    const res = await api.post("/provisioners", data);
+    return res.data;
   },
 
-  /**
-   * Delete a provisioner.
-   * If a secret is required by the backend/CA, pass it in the body.
-   */
   deleteProvisioner: async (name: string, secret?: string) => {
-    // axios.delete supports sending a request body via the config.data field
-    const config = secret ? { data: { secret } } : undefined
-    const res = await api.delete(`/provisioners/${encodeURIComponent(name)}`, config)
-    return res.data
+    const payload = secret ? { secret } : {};
+    const res = await api.delete(`/provisioners/${encodeURIComponent(name)}`, {
+      data: payload,
+    });
+    return res.data;
   },
 
-  /**
-   * Select a provisioner as active.
-   * Frontend must prompt for secret and pass it here when required.
-   */
   selectProvisioner: async (name: string, secret?: string) => {
-    const res = await api.post('/provisioners/select', { name, secret })
-    return res.data
+    const payload = secret ? { secret } : {};
+    const res = await api.post(
+      `/provisioners/${encodeURIComponent(name)}/select`,
+      payload
+    );
+    return res.data;
   },
 
-  //
+  // -----------------------------------------------------
   // CERTIFICATES
-  //
-  listCertificates: async (): Promise<{ items: CertificateItem[] }> => {
-    const res = await api.get('/certificates')
-    return res.data
-  },
+  // -----------------------------------------------------
 
-  getCertificate: async (id: string): Promise<CertificateDetail> => {
-    const res = await api.get(`/certificates/${encodeURIComponent(id)}`)
-    return res.data
+  listCertificates: async (): Promise<{ items: CertificateItem[] }> => {
+    const res = await api.get("/certificates");
+    return res.data;
   },
 
   issueCertificate: async (
     data: IssueCertificateRequest,
-    // secret is provided by frontend when required for the active provisioner
     secret?: string
   ): Promise<IssueCertificateResponse> => {
-    const payload = secret ? { ...data, secret } : data
-    const res = await api.post('/certificates/issue', payload)
-    return res.data
+    const payload = secret ? { ...data, secret } : data;
+    const res = await api.post("/certificates", payload);
+    return res.data;
   },
 
   revokeCertificate: async (serial: string, secret?: string) => {
-    const payload = secret ? { serial, secret } : { serial }
-    const res = await api.post('/certificates/revoke', payload)
-    return res.data
+    const payload = secret ? { serial, secret } : { serial };
+    const res = await api.post("/certificates/revoke", payload);
+    return res.data;
   },
 
   downloadCertificatePackage: (id: string) => {
-    // Vrací URL pro <a href>
-    return `/api/certificates/${encodeURIComponent(id)}/download`
+    return `/api/certificates/${encodeURIComponent(id)}/download`;
   },
 
-  //
+  // -----------------------------------------------------
   // AUDIT LOG
-  //
-  getAuditLog: async (params?: {
-    from?: string
-    to?: string
-    action?: string
-    user?: string
-  }): Promise<{ items: AuditEvent[] }> => {
-    const res = await api.get('/audit', { params })
-    return res.data
-  },
-}
+  // -----------------------------------------------------
 
-export default apiClient
+  getAuditLog: async (params?: {
+    from?: string;
+    to?: string;
+    action?: string;
+    user?: string;
+  }): Promise<{ items: AuditEvent[] }> => {
+    const res = await api.get("/audit", { params });
+    return res.data;
+  },
+};
+
+export default apiClient;
