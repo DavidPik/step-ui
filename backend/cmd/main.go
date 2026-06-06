@@ -8,7 +8,6 @@ import (
     "flag"
     "fmt"
     "log"
-    "net"
     "net/http"
     "os"
     "os/signal"
