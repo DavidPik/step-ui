@@ -1,78 +1,64 @@
-'use client'
+'use client';
 
-import { useEffect, useState } from 'react'
-import { apiClient, CertificateItem, AuditEvent, Provisioner } from '@/src/lib/api'
-import { Button } from '@/components/ui/button'
-import { toast } from "@/components/ui/use-toast"
-import { Skeleton } from "@/src/lib/skeleton"
+import { useEffect, useState } from 'react';
+import { apiClient } from '@/lib/api';
+import { CertificateItem, AuditEvent, Provisioner } from '@/lib/types';
+import { Button } from '@/components/ui/button';
 
 export default function DashboardPage() {
-  const [caOnline, setCaOnline] = useState<boolean | null>(null)
-  const [provisioners, setProvisioners] = useState<Provisioner[]>([])
-  const [certs, setCerts] = useState<CertificateItem[]>([])
-  const [audit, setAudit] = useState<AuditEvent[]>([])
-  const [loading, setLoading] = useState(true)
+  const [provisioners, setProvisioners] = useState<Provisioner[]>([]);
+  const [certs, setCerts] = useState<CertificateItem[]>([]);
+  const [audit, setAudit] = useState<AuditEvent[]>([]);
+  const [loading, setLoading] = useState(true);
 
   async function load() {
     try {
-      setLoading(true)
-
-      // CA health
-      try {
-        await apiClient.health()
-        setCaOnline(true)
-      } catch {
-        setCaOnline(false)
-      }
+      setLoading(true);
 
       // Provisioners
-      const prov = await apiClient.listProvisioners()
-      setProvisioners(prov.items)
+      const prov = await apiClient.listProvisioners();
+      setProvisioners(prov.items);
 
       // Certificates
-      const cert = await apiClient.listCertificates()
-      setCerts(cert.items)
+      const cert = await apiClient.listCertificates();
+      setCerts(cert.items);
 
       // Audit log
-      const auditRes = await apiClient.getAuditLog()
-      setAudit(auditRes.items)
+      const auditRes = await apiClient.getAuditLog();
+      setAudit(auditRes.items);
 
+    } catch (err) {
+      console.error('Failed to load dashboard data', err);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    load()
-  }, [])
+    load();
+  }, []);
 
-  if (loading) return <div className="p-6">Loading…</div>
+  if (loading) return <div className="p-6">Loading…</div>;
 
   // Derived metrics
-  const expired = certs.filter(c => new Date(c.not_after) < new Date()).length
-  const revoked = certs.filter(c => c.status === 'revoked').length
-  const issued = certs.length
+  const expired = certs.filter(c => new Date(c.not_after) < new Date()).length;
+  const issued = certs.length;
 
   const recentCerts = [...certs]
     .sort((a, b) => new Date(b.not_before).getTime() - new Date(a.not_before).getTime())
-    .slice(0, 5)
+    .slice(0, 5);
 
   const recentAudit = [...audit]
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-    .slice(0, 5)
+    .slice(0, 5);
 
   return (
     <div className="page page-dashboard space-y-6">
 
       {/* STATUS CARDS */}
       <section className="cards-row">
-        <div className={`card card-status ${caOnline ? 'card-status-ok' : 'card-status-danger'}`}>
-          <div className="card-title">CA Status</div>
-          <div className="card-value">{caOnline ? 'Online' : 'Offline'}</div>
-        </div>
-
-        <div className="card card-status">
-          <div className="card-title">Active Provisioners</div>
+        <div className="card card-status card-status-info">
+          <div className="card-title">Provisioners</div>
           <div className="card-value">{provisioners.length}</div>
         </div>
 
@@ -107,22 +93,24 @@ export default function DashboardPage() {
                 </tr>
               </thead>
               <tbody>
-                {recentCerts.map(c => (
-                  <tr key={c.serial}>
-                    <td>{c.common_name}</td>
-                    <td>{c.serial}</td>
-                    <td>
-                      {c.status === 'revoked' ? (
-                        <span className="badge badge-danger">Revoked</span>
-                      ) : new Date(c.not_after) < new Date() ? (
-                        <span className="badge">Expired</span>
-                      ) : (
-                        <span className="badge badge-ok">Active</span>
-                      )}
-                    </td>
-                    <td>{new Date(c.not_after).toLocaleDateString()}</td>
-                  </tr>
-                ))}
+                {recentCerts.map(c => {
+                  const isExpired = new Date(c.not_after) < new Date();
+
+                  return (
+                    <tr key={c.serial}>
+                      <td>{c.common_name}</td>
+                      <td>{c.serial}</td>
+                      <td>
+                        {isExpired ? (
+                          <span className="badge">Expired</span>
+                        ) : (
+                          <span className="badge badge-ok">Active</span>
+                        )}
+                      </td>
+                      <td>{new Date(c.not_after).toLocaleDateString()}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -158,5 +146,5 @@ export default function DashboardPage() {
 
       </section>
     </div>
-  )
+  );
 }
