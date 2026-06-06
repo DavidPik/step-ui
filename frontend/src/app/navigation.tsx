@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useActiveProvisioner } from "@/lib/activeProvisioner";
 
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard' },
@@ -13,7 +14,8 @@ const NAV_ITEMS = [
 
 export function Navigation() {
   const pathname = usePathname() || '/';
-
+   const { activeProvisioner, activeProvisionerStatus } = useActiveProvisioner();
+  
   return (
     <header className="app-header">
       <nav className="app-nav">
@@ -37,6 +39,18 @@ export function Navigation() {
             );
           })}
         </div>
+        
+        {activeProvisioner && (
+          <div className="app-nav-right">
+            <span className="app-nav-provisioner-label">
+              Active Provisioner:
+            </span>
+            <span className="app-nav-provisioner-value">
+              {activeProvisioner} ({activeProvisionerStatus})
+            </span>
+          </div>
+        )}
+        
       </nav>
     </header>
   );
