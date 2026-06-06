@@ -12,6 +12,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
+import { toast } from "@/components/ui/use-toast"
 
 // ------------------------------------------------------------
 // PAGE
@@ -44,7 +45,10 @@ export default function AuditLogPage() {
       setEvents(res.items)
       setError(null)
     } catch (err) {
-      setError('Failed to load audit log')
+      toast({
+        variant: "destructive",
+        title: "Failed to load audit log",
+      })
     } finally {
       setLoading(false)
     }
