@@ -1,3 +1,194 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { apiClient } from '@/lib/api';
+import { CertificateItem, CertificateDetail } from '@/lib/types';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogHeader, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { downloadFile } from '@/lib/utils';
+import { Skeleton } from '@/lib/skeleton';
+
+// ------------------------------------------------------------
+// PAGE
+// ------------------------------------------------------------
+
+export default function CertificatesPage() {
+  const [certs, setCerts] = useState<CertificateItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Expired'>('All');
+
+  // Dialog states
+  const [issueOpen, setIssueOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [revokeOpen, setRevokeOpen] = useState(false);
+
+  const [selectedCert, setSelectedCert] = useState<CertificateDetail | null>(null);
+
+  async function load() {
+    try {
+      setLoading(true);
+      const res = await apiClient.listCertificates();
+      setCerts(res.items);
+      setError(null);
+    } catch (err) {
+      setError('Failed to load certificates');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, []);
+
+  if (loading) return <div className="p-6">Loading…</div>;
+  if (error) return <div className="p-6 text-red-500">{error}</div>;
+
+  const filtered = certs.filter((c) => {
+    const isExpired = new Date(c.not_after) < new Date();
+
+    const matchesStatus =
+      statusFilter === 'All' ||
+      (statusFilter === 'Expired' && isExpired) ||
+      (statusFilter === 'Active' && !isExpired);
+
+    const matchesSearch =
+      c.common_name.toLowerCase().includes(search.toLowerCase()) ||
+      c.serial.toLowerCase().includes(search.toLowerCase());
+
+    return matchesStatus && matchesSearch;
+  });
+
+  return (
+    <div className="page page-certificates space-y-6">
+
+      {/* ACTIONS + FILTERS */}
+      <section className="card">
+        <div className="card-body flex flex-wrap justify-between gap-4">
+
+          {/* ACTION BUTTONS */}
+          <div className="flex gap-2">
+            <Button onClick={() => setIssueOpen(true)}>Issue Certificate</Button>
+          </div>
+
+          {/* FILTERS */}
+          <div className="flex gap-2 items-center flex-wrap">
+            <label>Status:</label>
+            <select
+              className="input"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value as any)}
+            >
+              <option value="All">All</option>
+              <option value="Active">Active</option>
+              <option value="Expired">Expired</option>
+            </select>
+
+            <Input
+              placeholder="Search CN or Serial…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+
+            <select className="input">
+              <option>Show 10</option>
+              <option>Show 25</option>
+              <option>Show 50</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      {/* TABLE */}
+      <section className="card card-table">
+        <div className="card-header">
+          <h2 className="card-header-title">Certificates</h2>
+        </div>
+
+        <div className="card-body">
+          <table className="table w-full">
+            <thead>
+              <tr>
+                <th>Common Name</th>
+                <th>Serial</th>
+                <th>Status</th>
+                <th>Issued</th>
+                <th>Expires</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {filtered.map((c) => {
+                const isExpired = new Date(c.not_after) < new Date();
+
+                return (
+                  <tr key={c.serial}>
+                    <td>{c.common_name}</td>
+                    <td>{c.serial}</td>
+                    <td>
+                      {isExpired ? (
+                        <span className="badge">Expired</span>
+                      ) : (
+                        <span className="badge badge-ok">Active</span>
+                      )}
+                    </td>
+                    <td>{new Date(c.not_before).toLocaleDateString()}</td>
+                    <td>{new Date(c.not_after).toLocaleDateString()}</td>
+                    <td>
+                      <Button
+                        onClick={() => {
+                          setSelectedCert({
+                            ...c,
+                            certificate_pem: "",
+                            ca_bundle_pem: ""
+                          });
+                          setDetailOpen(true);
+                        }}
+                      >
+                        View
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {/* DIALOGS */}
+      <IssueCertificateDialog
+        open={issueOpen}
+        onClose={() => setIssueOpen(false)}
+        onIssued={load}
+      />
+
+      <CertificateDetailDialog
+        open={detailOpen}
+        cert={selectedCert}
+        onClose={() => setDetailOpen(false)}
+        onRevoke={() => {
+          setDetailOpen(false);
+          setRevokeOpen(true);
+        }}
+      />
+
+      <RevokeCertificateDialog
+        open={revokeOpen}
+        cert={selectedCert}
+        onClose={() => setRevokeOpen(false)}
+        onRevoked={load}
+      />
+    </div>
+  );
+}
+
 // ------------------------------------------------------------
 // ISSUE CERTIFICATE DIALOG
 // ------------------------------------------------------------
@@ -62,10 +253,6 @@ function IssueCertificateDialog({
 }
 
 // ------------------------------------------------------------
-// SIGN CSR DIALOG — REMOVED (backend does not support CSR)
-// ------------------------------------------------------------
-
-// ------------------------------------------------------------
 // CERTIFICATE DETAIL DIALOG
 // ------------------------------------------------------------
 
@@ -90,20 +277,10 @@ function CertificateDetailDialog({
         </DialogHeader>
 
         <div className="space-y-2">
-          <div>
-            <strong>Common Name:</strong> {cert.common_name}
-          </div>
-          <div>
-            <strong>Serial:</strong> {cert.serial}
-          </div>
-          <div>
-            <strong>Issued:</strong>{" "}
-            {new Date(cert.not_before).toLocaleString()}
-          </div>
-          <div>
-            <strong>Expires:</strong>{" "}
-            {new Date(cert.not_after).toLocaleString()}
-          </div>
+          <div><strong>Common Name:</strong> {cert.common_name}</div>
+          <div><strong>Serial:</strong> {cert.serial}</div>
+          <div><strong>Issued:</strong> {new Date(cert.not_before).toLocaleString()}</div>
+          <div><strong>Expires:</strong> {new Date(cert.not_after).toLocaleString()}</div>
 
           <div>
             <strong>Download:</strong>
