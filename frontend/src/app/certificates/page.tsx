@@ -14,6 +14,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { downloadFile } from '@/src/lib/utils'
+import { toast } from "@/components/ui/use-toast"
 
 // ------------------------------------------------------------
 // PAGE
@@ -219,9 +220,15 @@ function IssueCertificateDialog({ open, onClose, onIssued }: {
         dns_names: dns.split(',').map(s => s.trim()).filter(Boolean),
       })
       onIssued()
+      toast({
+        title: "Certificate issued successfully",
+      })
       onClose()
     } catch (err) {
-      alert('Failed to issue certificate')
+      toast({
+        variant: "destructive",
+        title: "Failed to issue certificate",
+      })
     } finally {
       setLoading(false)
     }
@@ -275,9 +282,15 @@ function SignCSRDialog({ open, onClose, onSigned }: {
         not_after_days: 365,
       })
       onSigned()
+      toast({
+        title: "CSR signed successfully",
+      })
       onClose()
     } catch (err) {
-      alert('Failed to sign CSR')
+      toast({
+        variant: "destructive",
+        title: "Failed to sign CSR",
+      })
     } finally {
       setLoading(false)
     }
@@ -384,9 +397,15 @@ function RevokeCertificateDialog({ open, cert, onClose, onRevoked }: {
     try {
       await apiClient.revokeCertificate(cert.serial)
       onRevoked()
+      toast({
+        title: "Certificate revoked",
+      })
       onClose()
     } catch (err) {
-      alert('Failed to revoke certificate')
+      toast({
+        variant: "destructive",
+        title: "Failed to revoke certificate",
+      })
     } finally {
       setLoading(false)
     }
