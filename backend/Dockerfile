@@ -1,33 +1,19 @@
-# ============================
-# 1) Build stage
-# ============================
-FROM golang:1.22-alpine AS builder
-
-WORKDIR /app
-
-RUN apk add --no-cache ca-certificates
-
-# Copy go.mod and go.sum first
+# build stage
+FROM golang:1.21-alpine AS builder
+WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-
-# Copy the rest of the source
 COPY . .
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/step-ui-backend ./cmd/server
 
-# Build the backend (main.go is in backend/cmd)
-RUN CGO_ENABLED=0 GOOS=linux go build -o step-ui-backend ./cmd
-
-# ============================
-# 2) Runtime stage
-# ============================
-FROM alpine:3.19
-
-WORKDIR /app
-
+# final stage
+FROM alpine:3.18
 RUN apk add --no-cache ca-certificates
-
-COPY --from=builder /app/step-ui-backend /usr/local/bin/step-ui-backend
-
+COPY --from=builder /out/step-ui-backend /usr/local/bin/step-ui-backend
+# create directory for sqlite DB if used
+RUN mkdir -p /var/lib/step-ui && chown -R 1000:1000 /var/lib/step-ui
+USER 1000
+WORKDIR /var/lib/step-ui
+ENV DATABASE_DSN="file:/var/lib/step-ui/dev.db?_foreign_keys=1"
 EXPOSE 8080
-
-CMD ["step-ui-backend"]
+CMD ["/usr/local/bin/step-ui-backend"]
