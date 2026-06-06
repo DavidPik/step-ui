@@ -9,20 +9,13 @@ func RegisterRoutes(r *gin.Engine, database *db.Database) {
     api := r.Group("/api")
 
     //
-    // CA SETTINGS
-    //
-    api.GET("/settings", GetCASettings(database))
-    api.PUT("/settings", UpdateCASettings(database))
-
-    //
     // PROVISIONERS
     //
     api.GET("/provisioners", ListProvisioners(database))
-    api.GET("/provisioners/selected", GetSelectedProvisioner(database))
     api.GET("/provisioners/:name", GetProvisioner(database))
     api.POST("/provisioners", CreateProvisioner(database))
-    api.DELETE("/provisioners/:name", DeleteProvisioner(database))
-    api.POST("/provisioners/select", SelectProvisioner(database))
+    api.GET("/provisioners/status", GetProvisionerStatuses(database))
+    api.GET("/provisioners/:name/status", GetProvisionerStatus(database))
 
     //
     // CERTIFICATES
