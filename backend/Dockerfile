@@ -5,17 +5,13 @@ FROM golang:1.22-alpine AS builder
 
 WORKDIR /app
 
-# Install CA certificates
 RUN apk add --no-cache ca-certificates
 
-# Copy go.mod and go.sum first (better caching)
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source
 COPY . .
 
-# Build binary
 RUN CGO_ENABLED=0 GOOS=linux go build -o step-ui-backend ./cmd/server
 
 # ============================
