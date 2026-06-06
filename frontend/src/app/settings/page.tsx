@@ -5,6 +5,7 @@ import { apiClient, CASettings } from '@/src/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { toast } from "@/components/ui/use-toast"
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<CASettings | null>(null)
@@ -51,9 +52,14 @@ export default function SettingsPage() {
         acme_directories: directories,
       })
       await load()
-      alert('Settings saved')
+      toast({
+        title: "Settings saved",
+      })
     } catch (err) {
-      alert('Failed to save settings')
+      toast({
+        variant: "destructive",
+        title: "Failed to save settings",
+      })
     } finally {
       setSaving(false)
     }
