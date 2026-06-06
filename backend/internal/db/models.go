@@ -3,6 +3,8 @@ package db
 import (
     "strings"
     "time"
+
+    "gorm.io/gorm"
 )
 
 type Certificate struct {
@@ -34,26 +36,47 @@ type CASettings struct {
     RootFingerprint   string    `json:"root_fingerprint"`
     ProvisionerName   string    `json:"provisioner_name"`
     ProvisionerSecret string    `json:"provisioner_secret"`
-
-    // ACME directories stored as CSV in DB
+    // ACMEDirectories stored as CSV in DB column "acme_directories"
     ACMEDirectoriesCSV string   `gorm:"column:acme_directories" json:"-"`
     ACMEDirectories    []string `gorm:"-" json:"acme_directories"`
 
     CreatedAt time.Time `json:"created_at"`
 }
 
-// Convert slice → CSV before saving
 func (c *CASettings) BeforeSave(tx *gorm.DB) error {
     c.ACMEDirectoriesCSV = strings.Join(c.ACMEDirectories, ",")
     return nil
 }
 
-// Convert CSV → slice after loading
 func (c *CASettings) AfterFind(tx *gorm.DB) error {
     if c.ACMEDirectoriesCSV == "" {
         c.ACMEDirectories = []string{}
     } else {
         c.ACMEDirectories = strings.Split(c.ACMEDirectoriesCSV, ",")
+    }
+    return nil
+}
+
+// Provisioner stores metadata only. Secrets are NOT persisted.
+type Provisioner struct {
+    ID                 uint      `gorm:"primaryKey" json:"id"`
+    Name               string    `gorm:"uniqueIndex" json:"name"`
+    Type               string    `json:"type"`
+    ACMEDirectoriesCSV string    `gorm:"column:acme_directories" json:"-"`
+    ACMEDirectories    []string  `gorm:"-" json:"acme_directories"`
+    CreatedAt          time.Time `json:"created_at"`
+}
+
+func (p *Provisioner) BeforeSave(tx *gorm.DB) error {
+    p.ACMEDirectoriesCSV = strings.Join(p.ACMEDirectories, ",")
+    return nil
+}
+
+func (p *Provisioner) AfterFind(tx *gorm.DB) error {
+    if p.ACMEDirectoriesCSV == "" {
+        p.ACMEDirectories = []string{}
+    } else {
+        p.ACMEDirectories = strings.Split(p.ACMEDirectoriesCSV, ",")
     }
     return nil
 }
