@@ -44,8 +44,10 @@ func CreateProvisioner(database *db.Database) gin.HandlerFunc {
             Name            string   `json:"name"`
             Type            string   `json:"type"`
             Secret          *string  `json:"secret"`
+            JWK             string   `json:"jwk"`
             ACMEDirectories []string `json:"acme_directories"`
         }
+        
         if err := c.ShouldBindJSON(&input); err != nil {
             c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
             return
@@ -88,6 +90,7 @@ func CreateProvisioner(database *db.Database) gin.HandlerFunc {
         p := &db.Provisioner{
             Name:            input.Name,
             Type:            input.Type,
+            JWK:             input.JWK,
             ACMEDirectories: input.ACMEDirectories,
         }
 
@@ -417,17 +420,21 @@ func checkACMEStatus(p *db.Provisioner) string {
     }
 
     client := http.Client{Timeout: 3 * time.Second}
-    resp, err := client.Get(p.ACMEDirectories[0])
-    if err != nil {
-        return "offline"
-    }
-    defer resp.Body.Close()
 
-    if resp.StatusCode != 200 {
+    for _, dir := range p.ACMEDirectories {
+        resp, err := client.Get(dir)
+        if err != nil {
+            continue
+        }
+        defer resp.Body.Close()
+
+        if resp.StatusCode == 200 {
+            return "online"
+        }
         return "error"
     }
 
-    return "online"
+    return "offline"
 }
 
 func checkJWKStatus(p *db.Provisioner) string {
