@@ -1,4 +1,4 @@
-name: Go Mod Tidy and Verify (manual, push with PAT)
+name: Go Mod Tidy
 
 on:
   workflow_dispatch:
@@ -7,94 +7,25 @@ permissions:
   contents: write
 
 jobs:
-  tidy-and-push:
+  tidy:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
 
-      - name: Ensure PAT is available
-        id: check_pat
-        run: |
-          if [ -z "${{ secrets.PAT_FOR_AUTOCOMMIT }}" ]; then
-            echo "ERROR: secret PAT_FOR_AUTOCOMMIT is not set. Please add a Personal Access Token with repo write permissions to repository secrets."
-            exit 1
-          fi
-          echo "PAT present"
-      
-      - name: Set up Go
-        uses: actions/setup-go@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
         with:
           go-version: '1.22'
-          cache: 'true'
 
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cache/go-build
-            ~/go/pkg/mod
-          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ${{ runner.os }}-go-
+      - name: Run go mod tidy
+        working-directory: backend
+        run: go mod tidy
 
-      - name: Show Go version
-        run: go version
-
-      - name: Run go mod tidy and detect changes
-        id: tidy
+      - name: Commit changes
         run: |
-          set -euo pipefail
-          # run tidy
-          go mod tidy
-
-          # detect changes to go.mod/go.sum
-          if ! git --no-pager diff --exit-code -- go.mod go.sum; then
-            echo "changed=true" >> $GITHUB_OUTPUT
-            git --no-pager status --porcelain -- go.mod go.sum
-          else
-            echo "changed=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Run go mod verify
-        if: always()
-        run: go mod verify
-
-      - name: Commit and push go.mod/go.sum using PAT
-        if: steps.tidy.outputs.changed == 'true'
-        env:
-          PAT: ${{ secrets.PAT_FOR_AUTOCOMMIT }}
-          GIT_AUTHOR_NAME: github-actions
-          GIT_AUTHOR_EMAIL: actions@github.com
-        run: |
-          set -euo pipefail
-
-          # Configure git author
-          git config user.name "${GIT_AUTHOR_NAME}"
-          git config user.email "${GIT_AUTHOR_EMAIL}"
-
-          # Stage changes
-          git add go.mod go.sum
-
-          # If nothing to commit, exit
-          if git diff --cached --quiet; then
-            echo "Nothing to commit"
-            exit 0
-          fi
-
-          # Commit
-          git commit -m "chore: go mod tidy (automated by workflow)"
-
-          # Determine repository and branch to push to
-          REPO="${{ github.repository }}"   # e.g. owner/repo
-          # Determine current branch checked out by actions/checkout (default branch)
-          BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-          if [ -z "$BRANCH" ] || [ "$BRANCH" = "HEAD" ]; then
-            # fallback
+          git config --global user.name "github-actions"
+          git config --global user.email "github-actions@github.com"
+          git add backend/go.mod backend/go.sum
+          git commit -m "Run go mod tidy" || echo "No changes"
+          git push
