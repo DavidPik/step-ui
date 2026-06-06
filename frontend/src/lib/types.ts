@@ -1,5 +1,3 @@
-// Sdílené typy používané ve frontendu pro komunikaci s backendem.
-
 // ---------------------------------------------------------
 // Provisioners
 // ---------------------------------------------------------
@@ -31,7 +29,7 @@ export interface CertificateDetail {
   not_before: string;
   not_after: string;
   certificate_pem: string;
-  ca_bundle_pem: string;
+  ca_chain_pem: string;
 }
 
 export interface IssueCertificateRequest {
@@ -47,7 +45,7 @@ export interface IssueCertificateResponse {
   not_before: string;
   not_after: string;
   certificate_pem: string;
-  ca_bundle_pem: string;
+  ca_chain_pem: string;
 }
 
 export interface RevokeRequest {
