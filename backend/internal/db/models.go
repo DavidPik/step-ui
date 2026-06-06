@@ -1,6 +1,9 @@
 package db
 
-import "time"
+import (
+    "strings"
+    "time"
+)
 
 type Certificate struct {
     ID             uint      `gorm:"primaryKey" json:"id"`
@@ -10,7 +13,6 @@ type Certificate struct {
     NotBefore      time.Time `json:"not_before"`
     NotAfter       time.Time `json:"not_after"`
 
-    // PEM data for download
     CertificatePEM string `gorm:"type:longtext" json:"certificate_pem"`
     PrivateKeyPEM  string `gorm:"type:longtext" json:"private_key_pem"`
     CAChainPEM     string `gorm:"type:longtext" json:"ca_chain_pem"`
@@ -27,12 +29,31 @@ type AuditEvent struct {
 }
 
 type CASettings struct {
-    ID               uint     `gorm:"primaryKey" json:"id"`
-    CAURL            string   `json:"ca_url"`
-    RootFingerprint  string   `json:"root_fingerprint"`
-    ProvisionerName  string   `json:"provisioner_name"`
-    ProvisionerSecret string  `json:"provisioner_secret"`
-    ACMEDirectories  []string `gorm:"-" json:"acme_directories"`
+    ID                uint      `gorm:"primaryKey" json:"id"`
+    CAURL             string    `json:"ca_url"`
+    RootFingerprint   string    `json:"root_fingerprint"`
+    ProvisionerName   string    `json:"provisioner_name"`
+    ProvisionerSecret string    `json:"provisioner_secret"`
+
+    // ACME directories stored as CSV in DB
+    ACMEDirectoriesCSV string   `gorm:"column:acme_directories" json:"-"`
+    ACMEDirectories    []string `gorm:"-" json:"acme_directories"`
 
     CreatedAt time.Time `json:"created_at"`
+}
+
+// Convert slice → CSV before saving
+func (c *CASettings) BeforeSave(tx *gorm.DB) error {
+    c.ACMEDirectoriesCSV = strings.Join(c.ACMEDirectories, ",")
+    return nil
+}
+
+// Convert CSV → slice after loading
+func (c *CASettings) AfterFind(tx *gorm.DB) error {
+    if c.ACMEDirectoriesCSV == "" {
+        c.ACMEDirectories = []string{}
+    } else {
+        c.ACMEDirectories = strings.Split(c.ACMEDirectoriesCSV, ",")
+    }
+    return nil
 }
