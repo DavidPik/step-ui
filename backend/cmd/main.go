@@ -18,8 +18,8 @@ import (
 
     "github.com/gorilla/mux"
 
-    "github.com/yourorg/step-ui/backend/internal/db"
-    "github.com/yourorg/step-ui/backend/step"
+    "github.com/DavidPik/step-ui/backend/internal/db"
+    "github.com/DavidPik/step-ui/backend/step"
 )
 
 // NOTE: adjust module import paths above to match your go.mod module path.
