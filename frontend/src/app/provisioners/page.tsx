@@ -1,68 +1,61 @@
-'use client'
+'use client';
 
-import { useEffect, useState } from 'react'
-import { apiClient, Provisioner } from '@/src/lib/api'
-import { Button } from '@/components/ui/button'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from '@/components/ui/select'
-import { toast } from "@/components/ui/use-toast"
-import { Skeleton } from "@/src/lib/skeleton"
+import { useEffect, useState } from 'react';
+import { apiClient } from '@/lib/api';
+import { Provisioner } from '@/lib/types';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogHeader, DialogFooter } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/lib/skeleton';
 
 // ------------------------------------------------------------
 // PAGE
 // ------------------------------------------------------------
 
 export default function ProvisionersPage() {
-  const [provisioners, setProvisioners] = useState<Provisioner[]>([])
-  const [selected, setSelected] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [provisioners, setProvisioners] = useState<Provisioner[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Dialog states
-  const [createOpen, setCreateOpen] = useState(false)
-  const [selectOpen, setSelectOpen] = useState(false)
-  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [createOpen, setCreateOpen] = useState(false);
+  const [selectOpen, setSelectOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   // Selected provisioner for dialogs
-  const [activeProvisioner, setActiveProvisioner] = useState<Provisioner | null>(null)
+  const [activeProvisioner, setActiveProvisioner] = useState<Provisioner | null>(null);
 
   async function load() {
     try {
-      setLoading(true)
-      const res = await apiClient.listProvisioners()
-      setProvisioners(res.items)
-      const sel = await apiClient.getSelectedProvisioner()
-      setSelected(sel.name)
-      setError(null)
-    } catch (err: any) {
-      setError('Failed to load provisioners')
+      setLoading(true);
+      const res = await apiClient.listProvisioners();
+      setProvisioners(res.items);
+
+      // Backend neposílá aktivní provisioner → držíme ho lokálně
+      if (!selected && res.items.length > 0) {
+        setSelected(res.items[0].name);
+      }
+
+      setError(null);
+    } catch (err) {
+      console.error('Failed to load provisioners', err);
+      setError('Failed to load provisioners');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    load()
-  }, [])
+    load();
+  }, []);
 
-  if (loading) return <div className="p-6">Loading…</div>
-  if (error) return <div className="p-6 text-red-500">{error}</div>
+  if (loading) return <div className="p-6">Loading…</div>;
+  if (error) return <div className="p-6 text-red-500">{error}</div>;
 
-  const selectedProvisioner = provisioners.find(p => p.name === selected) || null
+  const selectedProvisioner =
+    provisioners.find((p) => p.name === selected) || null;
 
   return (
     <div className="page page-provisioners space-y-6">
@@ -99,22 +92,18 @@ export default function ProvisionersPage() {
                   </td>
                   <td className="space-x-2">
                     <Button
-                      size="sm"
-                      variant={selected === p.name ? 'default' : 'outline'}
                       onClick={() => {
-                        setActiveProvisioner(p)
-                        setSelectOpen(true)
+                        setActiveProvisioner(p);
+                        setSelectOpen(true);
                       }}
                     >
                       Select
                     </Button>
 
                     <Button
-                      size="sm"
-                      variant="destructive"
                       onClick={() => {
-                        setActiveProvisioner(p)
-                        setDeleteOpen(true)
+                        setActiveProvisioner(p);
+                        setDeleteOpen(true);
                       }}
                     >
                       Delete
@@ -163,197 +152,203 @@ export default function ProvisionersPage() {
         onDeleted={load}
       />
     </div>
-  )
+  );
 }
 
 // ------------------------------------------------------------
 // CREATE PROVISIONER DIALOG
 // ------------------------------------------------------------
 
-function CreateProvisionerDialog({ open, onClose, onCreated }: {
-  open: boolean
-  onClose: () => void
-  onCreated: () => void
+function CreateProvisionerDialog({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreated: () => void;
 }) {
-  const [name, setName] = useState('')
-  const [type, setType] = useState('JWK')
-  const [secret, setSecret] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [name, setName] = useState("");
+  const [type, setType] = useState("JWK");
+  const [secret, setSecret] = useState("");
+  const [loading, setLoading] = useState(false);
 
   async function handleCreate() {
-    setLoading(true)
+    setLoading(true);
     try {
       await apiClient.createProvisioner({
         name,
         type,
-        secret: type === 'JWK' ? secret : undefined,
-      })
-      onCreated()
-      toast({
-        title: "Provisioner created successfully",
-      })
-      onClose()
+        secret: type === "JWK" ? secret : undefined,
+      });
+      onCreated();
+      onClose();
     } catch (err) {
-      toast({
-        variant: "destructive",
-        title: "Failed to create provisioner",
-      })
+      console.error("Failed to create provisioner", err);
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent>
+    <Dialog open={open} onClose={onClose}>
+      <div className="bg-white p-6 rounded shadow max-w-lg">
         <DialogHeader>
-          <DialogTitle>Create Provisioner</DialogTitle>
+          <h3 className="text-lg font-semibold">Create Provisioner</h3>
         </DialogHeader>
 
         <div className="space-y-4">
           <div>
             <Label>Name</Label>
-            <Input value={name} onChange={e => setName(e.target.value)} />
+            <Input value={name} onChange={(e) => setName(e.target.value)} />
           </div>
 
           <div>
             <Label>Type</Label>
-            <Select value={type} onValueChange={setType}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="JWK">JWK</SelectItem>
-                <SelectItem value="ACME">ACME</SelectItem>
-                <SelectItem value="SSHPOP">SSHPOP</SelectItem>
-              </SelectContent>
-            </Select>
+            <select
+              className="input w-full border rounded px-3 py-2"
+              value={type}
+              onChange={(e) => setType(e.target.value)}
+            >
+              <option value="JWK">JWK</option>
+              <option value="ACME">ACME</option>
+            </select>
           </div>
 
-          {type === 'JWK' && (
+          {type === "JWK" && (
             <div>
               <Label>Secret</Label>
-              <Input type="password" value={secret} onChange={e => setSecret(e.target.value)} />
+              <Input
+                type="password"
+                value={secret}
+                onChange={(e) => setSecret(e.target.value)}
+              />
             </div>
           )}
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>Cancel</Button>
           <Button onClick={handleCreate} disabled={loading}>
-            {loading ? 'Creating…' : 'Create'}
+            {loading ? "Creating…" : "Create"}
           </Button>
         </DialogFooter>
-      </DialogContent>
+      </div>
     </Dialog>
-  )
+  );
 }
 
 // ------------------------------------------------------------
 // SELECT PROVISIONER DIALOG
 // ------------------------------------------------------------
 
-function SelectProvisionerDialog({ open, provisioner, onClose, onSelected }: {
-  open: boolean
-  provisioner: Provisioner | null
-  onClose: () => void
-  onSelected: () => void
+function SelectProvisionerDialog({
+  open,
+  provisioner,
+  onClose,
+  onSelected,
+}: {
+  open: boolean;
+  provisioner: Provisioner | null;
+  onClose: () => void;
+  onSelected: () => void;
 }) {
-  const [secret, setSecret] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [secret, setSecret] = useState("");
+  const [loading, setLoading] = useState(false);
 
   async function handleSelect() {
-    if (!provisioner) return
-    setLoading(true)
+    if (!provisioner) return;
+    setLoading(true);
     try {
-      await apiClient.selectProvisioner(provisioner.name, secret)
-      onSelected()
-      toast({
-        title: "Provisioner selected",
-      })
-      onClose()
+      await apiClient.selectProvisioner(provisioner.name, secret);
+      onSelected();
+      onClose();
     } catch (err) {
-      toast({
-        variant: "destructive",
-        title: "Failed to select provisioner",
-      })
+      console.error("Failed to select provisioner", err);
     } finally {
-      setLoading(false)
-      setSecret('') // clear secret from memory after action
+      setLoading(false);
+      setSecret("");
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent>
+    <Dialog open={open} onClose={onClose}>
+      <div className="bg-white p-6 rounded shadow max-w-lg">
         <DialogHeader>
-          <DialogTitle>Select Provisioner</DialogTitle>
+          <h3 className="text-lg font-semibold">Select Provisioner</h3>
         </DialogHeader>
 
         <div className="space-y-4">
           <div>
             <Label>Provisioner</Label>
-            <Input value={provisioner?.name || ''} disabled />
+            <Input value={provisioner?.name || ""} disabled />
           </div>
 
           <div>
             <Label>Secret</Label>
-            <Input type="password" value={secret} onChange={e => setSecret(e.target.value)} />
+            <Input
+              type="password"
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+            />
           </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={onClose}>Cancel</Button>
           <Button onClick={handleSelect} disabled={loading}>
-            {loading ? 'Selecting…' : 'Select'}
+            {loading ? "Selecting…" : "Select"}
           </Button>
         </DialogFooter>
-      </DialogContent>
+      </div>
     </Dialog>
-  )
+  );
 }
 
 // ------------------------------------------------------------
 // DELETE PROVISIONER DIALOG
 // ------------------------------------------------------------
 
-function DeleteProvisionerDialog({ open, provisioner, onClose, onDeleted }: {
-  open: boolean
-  provisioner: Provisioner | null
-  onClose: () => void
-  onDeleted: () => void
+function DeleteProvisionerDialog({
+  open,
+  provisioner,
+  onClose,
+  onDeleted,
+}: {
+  open: boolean;
+  provisioner: Provisioner | null;
+  onClose: () => void;
+  onDeleted: () => void;
 }) {
-  const [secret, setSecret] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [secret, setSecret] = useState("");
+  const [loading, setLoading] = useState(false);
 
   async function handleDelete() {
-    if (!provisioner) return
-    setLoading(true)
+    if (!provisioner) return;
+    setLoading(true);
     try {
-      // Pass secret to backend; backend will not persist it.
-      await apiClient.deleteProvisioner(provisioner.name, secret || undefined)
-      onDeleted()
-      toast({
-        title: "Provisioner deleted",
-      })
-      onClose()
+      await apiClient.deleteProvisioner(provisioner.name, secret || undefined);
+      onDeleted();
+      onClose();
     } catch (err) {
-      toast({
-        variant: "destructive",
-        title: "Failed to delete provisioner",
-      })
+      console.error("Failed to delete provisioner", err);
     } finally {
-      setLoading(false)
-      setSecret('') // clear secret from memory after action
+      setLoading(false);
+      setSecret("");
     }
   }
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent>
+    <Dialog open={open} onClose={onClose}>
+      <div className="bg-white p-6 rounded shadow max-w-lg">
         <DialogHeader>
-          <DialogTitle>Delete Provisioner</DialogTitle>
+          <h3 className="text-lg font-semibold">Delete Provisioner</h3>
         </DialogHeader>
 
-        <p>Are you sure you want to delete <strong>{provisioner?.name}</strong>?</p>
+        <p>
+          Are you sure you want to delete{" "}
+          <strong>{provisioner?.name}</strong>?
+        </p>
 
         <div className="space-y-4 mt-4">
           <div>
@@ -361,19 +356,19 @@ function DeleteProvisionerDialog({ open, provisioner, onClose, onDeleted }: {
             <Input
               type="password"
               value={secret}
-              onChange={e => setSecret(e.target.value)}
+              onChange={(e) => setSecret(e.target.value)}
               placeholder="Enter provisioner secret to confirm"
             />
           </div>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button variant="destructive" onClick={handleDelete} disabled={loading}>
-            {loading ? 'Deleting…' : 'Delete'}
+          <Button onClick={onClose}>Cancel</Button>
+          <Button onClick={handleDelete} disabled={loading}>
+            {loading ? "Deleting…" : "Delete"}
           </Button>
         </DialogFooter>
-      </DialogContent>
+      </div>
     </Dialog>
-  )
+  );
 }
