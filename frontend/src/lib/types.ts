@@ -1,76 +1,77 @@
-// frontend/src/lib/types.ts
 // Sdílené typy používané ve frontendu pro komunikaci s backendem.
 
+// ---------------------------------------------------------
+// Provisioners
+// ---------------------------------------------------------
+
+export interface Provisioner {
+  name: string;
+  type: string;
+  acme_directories?: string[];
+}
+
+// ---------------------------------------------------------
+// Certificates
+// ---------------------------------------------------------
+
 export interface CertificateItem {
-  id: string
-  common_name: string
-  dns_names: string
-  serial: string
-  not_before: string
-  not_after: string
+  id: string;
+  common_name: string;
+  dns_names: string[];
+  serial: string;
+  not_before: string;
+  not_after: string;
 }
 
 export interface CertificateDetail {
-  id: string
-  common_name: string
-  dns_names: string
-  serial: string
-  not_before: string
-  not_after: string
-  certificate_pem: string
-  private_key_pem: string
-  ca_chain_pem: string
+  id: string;
+  common_name: string;
+  dns_names: string[];
+  serial: string;
+  not_before: string;
+  not_after: string;
+  certificate_pem: string;
+  ca_bundle_pem: string;
 }
 
 export interface IssueCertificateRequest {
-  common_name: string
-  dns_names: string[]
+  common_name: string;
+  dns_names: string[];
+  not_after_days?: number;
 }
 
 export interface IssueCertificateResponse {
-  status: string
-  id: string
-  common_name: string
-  serial: string
-  not_before: string
-  not_after: string
-  certificate: string
-  private_key: string
-  ca_bundle: string
+  id: string;
+  serial: string;
+  common_name: string;
+  not_before: string;
+  not_after: string;
+  certificate_pem: string;
+  ca_bundle_pem: string;
 }
 
 export interface RevokeRequest {
-  serial: string
+  serial: string;
+  secret?: string;
 }
 
-export interface CASettings {
-  ca_url: string
-  root_fingerprint: string
-  provisioner_name: string
-  acme_directories: string[]
-}
-
-export interface Provisioner {
-  name: string
-  type: string
-  acme_directories?: string[]
-  is_active?: boolean
-}
+// ---------------------------------------------------------
+// Audit log
+// ---------------------------------------------------------
 
 export interface AuditEvent {
-  id: string
-  timestamp: string
-  action: string
-  user: string
-  details: string
-  ip: string
+  id: string;
+  timestamp: string;
+  action: string;
+  user: string;
+  details: string;
+  ip: string;
 }
 
-// API response wrappers
+// ---------------------------------------------------------
+// Generic list wrapper
+// ---------------------------------------------------------
+
 export interface ListResponse<T> {
-  items: T[]
-}
-
-export interface SelectedProvisionerResponse {
-  name: string
+  items: T[];
 }
