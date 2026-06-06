@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { apiClient, CertificateItem, AuditEvent, Provisioner } from '@/src/lib/api'
 import { Button } from '@/components/ui/button'
 import { toast } from "@/components/ui/use-toast"
+import { Skeleton } from "@/src/lib/skeleton"
 
 export default function DashboardPage() {
   const [caOnline, setCaOnline] = useState<boolean | null>(null)
