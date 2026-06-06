@@ -194,10 +194,10 @@ function CreateProvisionerDialog({ open, onClose, onCreated }: {
       })
       onClose()
     } catch (err) {
-        toast({
-          variant: "destructive",
-          title: "Failed to create provisioner",
-        })
+      toast({
+        variant: "destructive",
+        title: "Failed to create provisioner",
+      })
     } finally {
       setLoading(false)
     }
@@ -277,6 +277,7 @@ function SelectProvisionerDialog({ open, provisioner, onClose, onSelected }: {
       })
     } finally {
       setLoading(false)
+      setSecret('') // clear secret from memory after action
     }
   }
 
@@ -320,13 +321,15 @@ function DeleteProvisionerDialog({ open, provisioner, onClose, onDeleted }: {
   onClose: () => void
   onDeleted: () => void
 }) {
+  const [secret, setSecret] = useState('')
   const [loading, setLoading] = useState(false)
 
   async function handleDelete() {
     if (!provisioner) return
     setLoading(true)
     try {
-      await apiClient.deleteProvisioner(provisioner.name)
+      // Pass secret to backend; backend will not persist it.
+      await apiClient.deleteProvisioner(provisioner.name, secret || undefined)
       onDeleted()
       toast({
         title: "Provisioner deleted",
@@ -339,6 +342,7 @@ function DeleteProvisionerDialog({ open, provisioner, onClose, onDeleted }: {
       })
     } finally {
       setLoading(false)
+      setSecret('') // clear secret from memory after action
     }
   }
 
@@ -350,6 +354,18 @@ function DeleteProvisionerDialog({ open, provisioner, onClose, onDeleted }: {
         </DialogHeader>
 
         <p>Are you sure you want to delete <strong>{provisioner?.name}</strong>?</p>
+
+        <div className="space-y-4 mt-4">
+          <div>
+            <Label>Secret</Label>
+            <Input
+              type="password"
+              value={secret}
+              onChange={e => setSecret(e.target.value)}
+              placeholder="Enter provisioner secret to confirm"
+            />
+          </div>
+        </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
