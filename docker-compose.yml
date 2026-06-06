@@ -1,74 +1,29 @@
 version: "3.9"
 
 services:
-  # ----------------------------------------------------------
-  # Step-CA (certificate authority)
-  # ----------------------------------------------------------
-  stepca:
-    image: smallstep/step-ca:latest
-    container_name: stepui-stepca
-    restart: unless-stopped
-    environment:
-      # Tyto hodnoty doplníš podle své konfigurace
-      STEPPATH: /home/step
-      STEP_CA_PASSWORD: ${STEP_CA_PASSWORD}
-    volumes:
-      - stepca_data:/home/step
-    ports:
-      - "9000:9000"   # API
-      - "9443:9443"   # HTTPS API
-
-  # ----------------------------------------------------------
-  # Backend (Go API)
-  # ----------------------------------------------------------
   backend:
-    build:
-      context: .
-      dockerfile: backend/Dockerfile
-    container_name: stepui-backend
+    image: ghcr.io/davidpik/step-ui-backend:latest
+    container_name: step-ui-backend
     restart: unless-stopped
     environment:
-      # DB connection
-      DB_HOST: mariadb
-      DB_PORT: 3306
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
-
-      # Step-CA connection
-      CA_URL: ${CA_URL}
-      CA_FINGERPRINT: ${CA_FINGERPRINT}
-      CA_PROVISIONER: ${CA_PROVISIONER}
-      CA_PROVISIONER_PASSWORD: ${CA_PROVISIONER_PASSWORD}
-
-      # ACME directories (optional)
-      ACME_DIRECTORIES: ${ACME_DIRECTORIES}
-
-      # Backend port
-      PORT: 8080
-    depends_on:
-      - stepca
+      - STEP_CA_URL=${STEP_CA_URL}
+      - STEP_CA_FINGERPRINT=${STEP_CA_FINGERPRINT}
+      - STEP_CA_PROVISIONER=${STEP_CA_PROVISIONER}
+    volumes:
+      - backend-data:/data
     ports:
-      - "8080:8080"
+      - "9000:8080"
 
-  # ----------------------------------------------------------
-  # Frontend (Next.js)
-  # ----------------------------------------------------------
   frontend:
-    build:
-      context: .
-      dockerfile: frontend/Dockerfile
-    container_name: stepui-frontend
+    image: ghcr.io/davidpik/step-ui-frontend:latest
+    container_name: step-ui-frontend
     restart: unless-stopped
     environment:
-      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      - BACKEND_URL=http://backend:8080
     depends_on:
       - backend
     ports:
       - "3000:3000"
 
-# ------------------------------------------------------------
-# Volumes
-# ------------------------------------------------------------
 volumes:
-  stepca_data:
+  backend-data:
