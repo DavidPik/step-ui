@@ -8,6 +8,7 @@ import { Dialog, DialogHeader, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { downloadFile } from '@/lib/utils';
+import { useActiveProvisioner } from '@/lib/activeProvisioner';
 
 export default function CertificatesPage() {
   const [certs, setCerts] = useState<CertificateItem[]>([]);
@@ -22,6 +23,8 @@ export default function CertificatesPage() {
   const [revokeOpen, setRevokeOpen] = useState(false);
 
   const [selectedCert, setSelectedCert] = useState<CertificateDetail | null>(null);
+
+  const { activeProvisioner, activeProvisionerStatus } = useActiveProvisioner();
 
   async function load() {
     try {
@@ -66,7 +69,12 @@ export default function CertificatesPage() {
         <div className="card-body flex flex-wrap justify-between gap-4">
 
           <div className="flex gap-2">
-            <Button onClick={() => setIssueOpen(true)}>Issue Certificate</Button>
+            <Button
+              onClick={() => setIssueOpen(true)}
+              disabled={!activeProvisioner || activeProvisionerStatus !== 'online'}
+            >
+              Issue Certificate
+            </Button>
           </div>
 
           <div className="flex gap-2 items-center flex-wrap">
@@ -149,6 +157,8 @@ export default function CertificatesPage() {
         open={issueOpen}
         onClose={() => setIssueOpen(false)}
         onIssued={load}
+        activeProvisioner={activeProvisioner}
+        activeProvisionerStatus={activeProvisionerStatus}
       />
 
       <CertificateDetailDialog
@@ -179,10 +189,14 @@ function IssueCertificateDialog({
   open,
   onClose,
   onIssued,
+  activeProvisioner,
+  activeProvisionerStatus,
 }: {
   open: boolean;
   onClose: () => void;
   onIssued: () => void;
+  activeProvisioner: string | null;
+  activeProvisionerStatus: 'online' | 'offline' | 'error' | 'unknown';
 }) {
   const [cn, setCn] = useState("");
   const [dns, setDns] = useState("");
@@ -197,12 +211,16 @@ function IssueCertificateDialog({
       });
       onIssued();
       onClose();
+      setCn("");
+      setDns("");
     } catch (err) {
       console.error("Failed to issue certificate", err);
     } finally {
       setLoading(false);
     }
   }
+
+  const disabled = !activeProvisioner || activeProvisionerStatus !== 'online';
 
   return (
     <Dialog open={open} onClose={onClose}>
@@ -212,6 +230,18 @@ function IssueCertificateDialog({
         </DialogHeader>
 
         <div className="space-y-4">
+          {activeProvisioner ? (
+            activeProvisionerStatus !== 'online' ? (
+              <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm">
+                ⚠️ Active provisioner <strong>{activeProvisioner}</strong> is <strong>{activeProvisionerStatus}</strong>. Issuing certificates is disabled until the provisioner is online.
+              </div>
+            ) : null
+          ) : (
+            <div className="p-3 bg-yellow-50 border border-yellow-200 rounded text-sm">
+              ⚠️ No active provisioner selected. Select a provisioner in the Provisioners page before issuing certificates.
+            </div>
+          )}
+
           <div>
             <Label>Common Name</Label>
             <Input value={cn} onChange={(e) => setCn(e.target.value)} />
@@ -225,7 +255,7 @@ function IssueCertificateDialog({
 
         <DialogFooter>
           <Button onClick={onClose}>Cancel</Button>
-          <Button onClick={handleIssue} disabled={loading}>
+          <Button onClick={handleIssue} disabled={loading || disabled}>
             {loading ? "Issuing…" : "Issue"}
           </Button>
         </DialogFooter>
