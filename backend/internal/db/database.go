@@ -98,8 +98,11 @@ func (d *Database) UpdateCASettings(settings *CASettings) error {
 // CERTIFICATES CRUD
 // ------------------------------------------------------------
 
-func (d *Database) CreateCertificate(cert *Certificate) error {
-    return d.DB.Create(cert).Error
+func (d *Database) CreateCertificate(cert *Certificate) (uint, error) {
+    if err := d.DB.Create(cert).Error; err != nil {
+        return 0, err
+    }
+    return cert.ID, nil
 }
 
 func (d *Database) GetCertificateByID(id string) (*Certificate, error) {
