@@ -13,107 +13,6 @@ import (
 )
 
 //
-// CA SETTINGS handlers (unchanged)
-//
-
-func GetCASettings(database *db.Database) gin.HandlerFunc {
-    return func(c *gin.Context) {
-        settings, err := database.GetCASettings()
-        if err != nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load CA settings"})
-            return
-        }
-
-        c.JSON(http.StatusOK, gin.H{
-            "ca_url":           settings.CAURL,
-            "root_fingerprint": settings.RootFingerprint,
-            "provisioner_name": settings.ProvisionerName,
-            "acme_directories": settings.ACMEDirectories,
-            "status":           "ok",
-        })
-    }
-}
-
-func UpdateCASettings(database *db.Database) gin.HandlerFunc {
-    return func(c *gin.Context) {
-        var input struct {
-            CAURL             string   `json:"ca_url"`
-            RootFingerprint   string   `json:"root_fingerprint"`
-            ProvisionerName   string   `json:"provisioner_name"`
-            ProvisionerSecret string   `json:"provisioner_secret"`
-            ACMEDirectories   []string `json:"acme_directories"`
-        }
-
-        if err := c.ShouldBindJSON(&input); err != nil {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
-            return
-        }
-
-        input.CAURL = strings.TrimSpace(input.CAURL)
-        input.RootFingerprint = strings.TrimSpace(input.RootFingerprint)
-        input.ProvisionerName = strings.TrimSpace(input.ProvisionerName)
-        input.ProvisionerSecret = strings.TrimSpace(input.ProvisionerSecret)
-
-        if input.CAURL == "" {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "ca_url is required"})
-            return
-        }
-        if !strings.HasPrefix(input.CAURL, "http://") && !strings.HasPrefix(input.CAURL, "https://") {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "ca_url must start with http:// or https://"})
-            return
-        }
-
-        if input.RootFingerprint != "" {
-            fpRegex := regexp.MustCompile(`^[A-Fa-f0-9:]{59,95}$`)
-            if !fpRegex.MatchString(input.RootFingerprint) {
-                c.JSON(http.StatusBadRequest, gin.H{"error": "invalid root fingerprint format"})
-                return
-            }
-        }
-
-        if input.ProvisionerName != "" {
-            if !regexp.MustCompile(`^[a-zA-Z0-9._-]+$`).MatchString(input.ProvisionerName) {
-                c.JSON(http.StatusBadRequest, gin.H{"error": "invalid provisioner name"})
-                return
-            }
-        }
-
-        if input.ProvisionerSecret != "" && len(input.ProvisionerSecret) < 6 {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "provisioner secret must be at least 6 characters"})
-            return
-        }
-
-        for _, dir := range input.ACMEDirectories {
-            if !strings.HasPrefix(dir, "http://") && !strings.HasPrefix(dir, "https://") {
-                c.JSON(http.StatusBadRequest, gin.H{"error": "invalid ACME directory: " + dir})
-                return
-            }
-        }
-
-        settings := &db.CASettings{
-            CAURL:             input.CAURL,
-            RootFingerprint:   input.RootFingerprint,
-            ProvisionerName:   input.ProvisionerName,
-            ProvisionerSecret: input.ProvisionerSecret,
-            ACMEDirectories:   input.ACMEDirectories,
-        }
-
-        if err := database.UpdateCASettings(settings); err != nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update CA settings"})
-            return
-        }
-
-        _ = database.LogAuditEvent(&db.AuditEvent{
-            User:    "system",
-            Action:  "settings_updated",
-            Details: "CA settings updated",
-        })
-
-        c.JSON(http.StatusOK, gin.H{"status": "updated"})
-    }
-}
-
-//
 // PROVISIONERS handlers
 //
 
@@ -125,67 +24,16 @@ func ListProvisioners(database *db.Database) gin.HandlerFunc {
             return
         }
 
-        settings, _ := database.GetCASettings()
-        selected := ""
-        if settings != nil {
-            selected = settings.ProvisionerName
-        }
-
         items := make([]gin.H, 0, len(provs))
         for _, p := range provs {
             items = append(items, gin.H{
                 "name":             p.Name,
                 "type":             p.Type,
                 "acme_directories": p.ACMEDirectories,
-                "is_active":        p.Name == selected,
             })
         }
 
         c.JSON(http.StatusOK, gin.H{"items": items})
-    }
-}
-
-func GetSelectedProvisioner(database *db.Database) gin.HandlerFunc {
-    return func(c *gin.Context) {
-        settings, err := database.GetCASettings()
-        if err != nil || settings == nil {
-            c.JSON(http.StatusOK, gin.H{"name": ""})
-            return
-        }
-        c.JSON(http.StatusOK, gin.H{"name": settings.ProvisionerName})
-    }
-}
-
-func GetProvisioner(database *db.Database) gin.HandlerFunc {
-    return func(c *gin.Context) {
-        name := c.Param("name")
-        p, err := database.GetProvisionerByName(name)
-        if err != nil || p == nil {
-            c.JSON(http.StatusNotFound, gin.H{"error": "provisioner not found"})
-            return
-        }
-
-        // best-effort: fetch step-ca metadata (non-blocking)
-        var meta interface{} = nil
-        settings, _ := database.GetCASettings()
-        if settings != nil && settings.CAURL != "" {
-            client := step.NewClientFromSettings(settings)
-            if provs, err := client.ListProvisioners(); err == nil {
-                for _, sp := range provs {
-                    if sp.Name == p.Name {
-                        meta = sp
-                        break
-                    }
-                }
-            }
-        }
-
-        c.JSON(http.StatusOK, gin.H{
-            "name":             p.Name,
-            "type":             p.Type,
-            "acme_directories": p.ACMEDirectories,
-            "metadata":         meta,
-        })
     }
 }
 
@@ -298,50 +146,43 @@ func DeleteProvisioner(database *db.Database) gin.HandlerFunc {
     }
 }
 
-func SelectProvisioner(database *db.Database) gin.HandlerFunc {
+func GetProvisionerStatuses(database *db.Database) gin.HandlerFunc {
     return func(c *gin.Context) {
-        var input struct {
-            Name   string  `json:"name"`
-            Secret *string `json:"secret"`
-        }
-        if err := c.ShouldBindJSON(&input); err != nil {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "invalid JSON"})
-            return
-        }
-        input.Name = strings.TrimSpace(input.Name)
-        if input.Name == "" {
-            c.JSON(http.StatusBadRequest, gin.H{"error": "name is required"})
+        provs, err := database.ListProvisioners()
+        if err != nil {
+            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load provisioners"})
             return
         }
 
-        // Ensure provisioner exists in DB
-        p, err := database.GetProvisionerByName(input.Name)
+        items := make([]gin.H, 0, len(provs))
+        for _, p := range provs {
+            status := CheckProvisionerStatus(&p)
+            items = append(items, gin.H{
+                "name":   p.Name,
+                "status": status,
+            })
+        }
+
+        c.JSON(http.StatusOK, gin.H{"items": items})
+    }
+}
+
+func GetProvisionerStatus(database *db.Database) gin.HandlerFunc {
+    return func(c *gin.Context) {
+        name := c.Param("name")
+
+        p, err := database.GetProvisionerByName(name)
         if err != nil || p == nil {
             c.JSON(http.StatusNotFound, gin.H{"error": "provisioner not found"})
             return
         }
 
-        // If step-ca is configured and secret provided, we could attempt verification (best-effort).
-        // We do not persist the secret.
-        // For now accept the secret and set selected provisioner.
-        settingsToUpdate, err := database.GetCASettings()
-        if err != nil || settingsToUpdate == nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load CA settings"})
-            return
-        }
-        settingsToUpdate.ProvisionerName = input.Name
-        if err := database.UpdateCASettings(settingsToUpdate); err != nil {
-            c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to set selected provisioner"})
-            return
-        }
+        status := CheckProvisionerStatus(p)
 
-        _ = database.LogAuditEvent(&db.AuditEvent{
-            User:    "system",
-            Action:  "provisioner_selected",
-            Details: "name=" + input.Name,
+        c.JSON(http.StatusOK, gin.H{
+            "name":   p.Name,
+            "status": status,
         })
-
-        c.JSON(http.StatusOK, gin.H{"status": "selected", "name": input.Name})
     }
 }
 
@@ -557,4 +398,46 @@ func isValidDNSName(s string) bool {
         return false
     }
     return true
+}
+
+func CheckProvisionerStatus(p *db.Provisioner) string {
+    if p.Type == "ACME" {
+        return checkACMEStatus(p)
+    }
+    if p.Type == "JWK" {
+        return checkJWKStatus(p)
+    }
+    return "unknown"
+}
+
+func checkACMEStatus(p *db.Provisioner) string {
+    if len(p.ACMEDirectories) == 0 {
+        return "unknown"
+    }
+
+    client := http.Client{Timeout: 3 * time.Second}
+    resp, err := client.Get(p.ACMEDirectories[0])
+    if err != nil {
+        return "offline"
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != 200 {
+        return "error"
+    }
+
+    return "online"
+}
+
+func checkJWKStatus(p *db.Provisioner) string {
+    if p.JWK == "" {
+        return "unknown"
+    }
+
+    _, err := jose.ParseJWK(p.JWK)
+    if err != nil {
+        return "error"
+    }
+
+    return "online"
 }
