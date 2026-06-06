@@ -19,9 +19,10 @@ func RegisterRoutes(r *gin.Engine, database *db.Database) {
     //
     api.GET("/provisioners", ListProvisioners(database))
     api.GET("/provisioners/selected", GetSelectedProvisioner(database))
-    api.POST("/provisioners/select", SelectProvisioner(database))
+    api.GET("/provisioners/:name", GetProvisioner(database))
     api.POST("/provisioners", CreateProvisioner(database))
     api.DELETE("/provisioners/:name", DeleteProvisioner(database))
+    api.POST("/provisioners/select", SelectProvisioner(database))
 
     //
     // CERTIFICATES
