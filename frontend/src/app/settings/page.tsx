@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { toast } from "@/components/ui/use-toast"
+import { Skeleton } from "@/src/lib/skeleton"
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<CASettings | null>(null)
