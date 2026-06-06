@@ -19,6 +19,7 @@ import {
   SelectContent,
   SelectItem,
 } from '@/components/ui/select'
+import { toast } from "@/components/ui/use-toast"
 
 // ------------------------------------------------------------
 // PAGE
@@ -187,9 +188,15 @@ function CreateProvisionerDialog({ open, onClose, onCreated }: {
         secret: type === 'JWK' ? secret : undefined,
       })
       onCreated()
+      toast({
+        title: "Provisioner created successfully",
+      })
       onClose()
     } catch (err) {
-      alert('Failed to create provisioner')
+        toast({
+          variant: "destructive",
+          title: "Failed to create provisioner",
+        })
     } finally {
       setLoading(false)
     }
@@ -258,9 +265,15 @@ function SelectProvisionerDialog({ open, provisioner, onClose, onSelected }: {
     try {
       await apiClient.selectProvisioner(provisioner.name, secret)
       onSelected()
+      toast({
+        title: "Provisioner selected",
+      })
       onClose()
     } catch (err) {
-      alert('Failed to select provisioner')
+      toast({
+        variant: "destructive",
+        title: "Failed to select provisioner",
+      })
     } finally {
       setLoading(false)
     }
@@ -314,9 +327,15 @@ function DeleteProvisionerDialog({ open, provisioner, onClose, onDeleted }: {
     try {
       await apiClient.deleteProvisioner(provisioner.name)
       onDeleted()
+      toast({
+        title: "Provisioner deleted",
+      })
       onClose()
     } catch (err) {
-      alert('Failed to delete provisioner')
+      toast({
+        variant: "destructive",
+        title: "Failed to delete provisioner",
+      })
     } finally {
       setLoading(false)
     }
