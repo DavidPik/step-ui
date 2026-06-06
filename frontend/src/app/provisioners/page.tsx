@@ -141,6 +141,12 @@ export default function ProvisionersPage() {
               {statuses.find((s) => s.name === currentProvisioner.name)?.status ??
                 'unknown'}
             </div>
+            <div>
+              <strong>ACME directories:</strong>{' '}
+              {(currentProvisioner.acme_directories || []).length > 0
+                ? (currentProvisioner.acme_directories || []).join(', ')
+                : '—'}
+            </div>
           </div>
         </section>
       )}
@@ -178,7 +184,25 @@ function CreateProvisionerDialog({
   const [name, setName] = useState("");
   const [type, setType] = useState("JWK");
   const [secret, setSecret] = useState("");
+  const [acmeInput, setAcmeInput] = useState("");
+  const [acmeDirs, setAcmeDirs] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+
+  function addAcmeDir() {
+    const v = acmeInput.trim();
+    if (!v) return;
+    // minimal validation: must start with http:// or https://
+    if (!v.startsWith("http://") && !v.startsWith("https://")) {
+      // simple client-side feedback could be added; for now ignore invalid
+      return;
+    }
+    setAcmeDirs((s) => [...s, v]);
+    setAcmeInput("");
+  }
+
+  function removeAcmeDir(idx: number) {
+    setAcmeDirs((s) => s.filter((_, i) => i !== idx));
+  }
 
   async function handleCreate() {
     setLoading(true);
@@ -189,10 +213,16 @@ function CreateProvisionerDialog({
         type,
         secret: type === "JWK" ? secret : undefined,
         jwk: type === "JWK" ? secret : undefined,
-        acme_directories: type === "ACME" ? [] : [],
+        acme_directories: type === "ACME" ? acmeDirs : [],
       });
       onCreated();
       onClose();
+      // reset fields
+      setName("");
+      setType("JWK");
+      setSecret("");
+      setAcmeDirs([]);
+      setAcmeInput("");
     } catch (err) {
       console.error("Failed to create provisioner", err);
     } finally {
@@ -233,6 +263,32 @@ function CreateProvisionerDialog({
                 value={secret}
                 onChange={(e) => setSecret(e.target.value)}
               />
+            </div>
+          )}
+
+          {type === "ACME" && (
+            <div>
+              <Label>ACME directories</Label>
+              <div className="flex space-x-2">
+                <Input
+                  value={acmeInput}
+                  onChange={(e) => setAcmeInput(e.target.value)}
+                  placeholder="https://acme.example/directory"
+                />
+                <Button onClick={addAcmeDir}>Add</Button>
+              </div>
+
+              <div className="mt-2 space-y-1">
+                {acmeDirs.length === 0 && <div className="text-sm text-muted">No ACME directories added.</div>}
+                {acmeDirs.map((d, i) => (
+                  <div key={i} className="flex items-center justify-between bg-gray-50 p-2 rounded">
+                    <div className="truncate mr-4">{d}</div>
+                    <div>
+                      <Button onClick={() => removeAcmeDir(i)} variant="danger">Remove</Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>
