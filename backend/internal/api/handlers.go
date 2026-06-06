@@ -7,6 +7,7 @@ import (
     "time"
 
     "github.com/gin-gonic/gin"
+    "github.com/go-jose/go-jose/v3"
 
     "github.com/DavidPik/step-ui/backend/internal/db"
     "github.com/DavidPik/step-ui/backend/internal/step"
