@@ -2,17 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import React from 'react';
 
 const NAV_ITEMS = [
   { href: '/', label: 'Dashboard' },
   { href: '/provisioners', label: 'Provisioners' },
   { href: '/certificates', label: 'Certificates' },
-  { href: '/settings', label: 'CA Settings' },
   { href: '/audit-log', label: 'Audit Log' },
+  { href: '/settings', label: 'Settings' },
 ];
-
-const ACTIVE_PROVISIONER = 'Demo-ACME';
 
 export function Navigation() {
   const pathname = usePathname() || '/';
@@ -39,12 +36,6 @@ export function Navigation() {
               </Link>
             );
           })}
-        </div>
-        <div className="app-nav-right">
-          <span className="app-nav-provisioner-label">Active Provisioner:</span>
-          <span className="app-nav-provisioner-value">
-            {ACTIVE_PROVISIONER}
-          </span>
         </div>
       </nav>
     </header>
