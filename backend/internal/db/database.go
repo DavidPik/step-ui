@@ -15,10 +15,7 @@ type Database struct {
     DB *gorm.DB
 }
 
-// ------------------------------------------------------------
-// INITIALIZATION
-// ------------------------------------------------------------
-
+// NewDatabase initializes DB connection and migrates schema.
 func NewDatabase() *Database {
     user := os.Getenv("DB_USER")
     pass := os.Getenv("DB_PASSWORD")
@@ -33,23 +30,19 @@ func NewDatabase() *Database {
     dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
         user, pass, host, port, name)
 
-    db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
+    dbConn, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
     if err != nil {
         log.Fatalf("Failed to connect to MariaDB: %v", err)
     }
 
-    if err := db.AutoMigrate(&Certificate{}, &AuditEvent{}, &CASettings{}); err != nil {
+    if err := dbConn.AutoMigrate(&Certificate{}, &AuditEvent{}, &CASettings{}, &Provisioner{}); err != nil {
         log.Fatalf("Failed to migrate database schema: %v", err)
     }
 
-    ensureDefaultCASettings(db)
+    ensureDefaultCASettings(dbConn)
 
-    return &Database{DB: db}
+    return &Database{DB: dbConn}
 }
-
-// ------------------------------------------------------------
-// DEFAULT CA SETTINGS
-// ------------------------------------------------------------
 
 func ensureDefaultCASettings(db *gorm.DB) {
     var count int64
@@ -77,9 +70,7 @@ func ensureDefaultCASettings(db *gorm.DB) {
     }
 }
 
-// ------------------------------------------------------------
-// CA SETTINGS CRUD
-// ------------------------------------------------------------
+// CA Settings CRUD
 
 func (d *Database) GetCASettings() (*CASettings, error) {
     var settings CASettings
@@ -93,36 +84,47 @@ func (d *Database) UpdateCASettings(settings *CASettings) error {
     return d.DB.Save(settings).Error
 }
 
-// ------------------------------------------------------------
-// CERTIFICATES CRUD
-// ------------------------------------------------------------
+// Provisioner CRUD (secrets are not stored)
 
-func (d *Database) CreateCertificate(cert *Certificate) (uint, error) {
-    if err := d.DB.Create(cert).Error; err != nil {
+func (d *Database) CreateProvisioner(p *Provisioner) (uint, error) {
+    if err := d.DB.Create(p).Error; err != nil {
         return 0, err
     }
-    return cert.ID, nil
+    return p.ID, nil
 }
 
-func (d *Database) GetCertificateByID(id string) (*Certificate, error) {
-    var cert Certificate
-    if err := d.DB.First(&cert, id).Error; err != nil {
+func (d *Database) GetProvisionerByName(name string) (*Provisioner, error) {
+    var p Provisioner
+    if err := d.DB.Where("name = ?", name).First(&p).Error; err != nil {
         return nil, err
     }
-    return &cert, nil
+    return &p, nil
 }
 
-func (d *Database) ListCertificates() ([]Certificate, error) {
-    var certs []Certificate
-    if err := d.DB.Order("id desc").Find(&certs).Error; err != nil {
+func (d *Database) ListProvisioners() ([]Provisioner, error) {
+    var provs []Provisioner
+    if err := d.DB.Order("id desc").Find(&provs).Error; err != nil {
         return nil, err
     }
-    return certs, nil
+    return provs, nil
 }
 
-// ------------------------------------------------------------
-// AUDIT LOG
-// ------------------------------------------------------------
+func (d *Database) UpdateProvisioner(oldName string, p *Provisioner) error {
+    // We do not support editing secrets. Only metadata (acme directories) could be updated,
+    // but per project decision provisioners are immutable except create/delete/select/detail.
+    // Implement a safe update for metadata if ever needed.
+    return d.DB.Model(&Provisioner{}).Where("name = ?", oldName).Updates(map[string]interface{}{
+        "name":               p.Name,
+        "acme_directories":   p.ACMEDirectoriesCSV,
+        "type":               p.Type,
+    }).Error
+}
+
+func (d *Database) DeleteProvisioner(name string) error {
+    return d.DB.Where("name = ?", name).Delete(&Provisioner{}).Error
+}
+
+// Audit log
 
 func (d *Database) LogAuditEvent(event *AuditEvent) error {
     return d.DB.Create(event).Error
