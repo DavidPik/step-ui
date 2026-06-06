@@ -38,7 +38,6 @@ func NewDatabase() *Database {
         log.Fatalf("Failed to connect to MariaDB: %v", err)
     }
 
-    // Auto-create tables
     if err := db.AutoMigrate(&Certificate{}, &AuditEvent{}, &CASettings{}); err != nil {
         log.Fatalf("Failed to migrate database schema: %v", err)
     }
