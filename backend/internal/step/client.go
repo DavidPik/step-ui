@@ -1,505 +1,355 @@
 package step
 
 import (
-    "archive/zip"
     "bytes"
-    "crypto/tls"
-    "crypto/x509"
+    "context"
     "encoding/json"
-    "encoding/pem"
+    "errors"
     "fmt"
     "io"
     "net"
     "net/http"
-    "os"
-    "path/filepath"
+    "net/url"
     "strings"
     "sync"
     "time"
-
-    "github.com/DavidPik/step-ui/backend/internal/db"
+    "crypto/tls"
 )
 
-// StepClient komunikuje se step-ca.
-// Poznámka: instance může být sdílena, proto chráníme mutable pole mutexem.
+// -----------------------------
+// Canonical server API paths (Smallstep step-ca server API)
+// Centralized here so změna cesty je na jednom místě.
+// -----------------------------
+const (
+    pathProvisioners        = "/provisioners"
+    pathProvisioner         = "/provisioners/%s"
+    pathSelectProvisioner   = "/provisioners/%s/select"
+    pathSign                = "/sign"
+    pathRevoke              = "/revoke"
+    pathCertificate         = "/certificates/%s"
+    pathCertificateDownload = "/certificates/%s/download"
+    pathVersion             = "/version"
+    pathHealth              = "/health"
+)
+
+// StepClient is a simple HTTP client for communicating with step-ca server API.
+// It is safe for concurrent use.
 type StepClient struct {
-    CAURL           string
-    RootFingerprint string
-
-    // provisioner fields are mutable and protected by mu
-    mu                sync.RWMutex
-    ProvisionerName   string
-    ProvisionerSecret string
-
-    ACMEDirectories []string
-    httpClient      *http.Client
+    baseURL    *url.URL
+    httpClient *http.Client
+    mu         sync.Mutex // protects any future mutable fields
 }
 
-// NewClientFromSettings vytvoří klienta z nastavení DB.
-// Timeout a TLS chování lze konfigurovat přes env proměnné:
-// STEP_CLIENT_TIMEOUT (sekundy, default 20)
-// STEP_CA_INSECURE (true/false, default false) - pokud true, TLS verify se vypne (pouze v izolovaných sítích)
-func NewClientFromSettings(settings *db.CASettings) *StepClient {
-    timeout := 20 * time.Second
-    if t := strings.TrimSpace(os.Getenv("STEP_CLIENT_TIMEOUT")); t != "" {
-        if sec, err := time.ParseDuration(t + "s"); err == nil {
-            timeout = sec
-        }
+// Config holds configuration for StepClient.
+type Config struct {
+    BaseURL            string
+    Timeout            time.Duration
+    InsecureSkipVerify bool
+    Headers            map[string]string
+}
+
+// NewClient creates a new StepClient configured with the provided Config.
+// BaseURL must be a valid absolute URL (e.g., https://step-ca:9000).
+// Timeout defaults to 10s if zero.
+func NewClient(cfg Config) (*StepClient, error) {
+    if strings.TrimSpace(cfg.BaseURL) == "" {
+        return nil, errors.New("step: BaseURL is required")
+    }
+    parsed, err := url.Parse(cfg.BaseURL)
+    if err != nil {
+        return nil, fmt.Errorf("step: invalid base url: %w", err)
+    }
+    timeout := cfg.Timeout
+    if timeout <= 0 {
+        timeout = 10 * time.Second
     }
 
-    insecure := false
-    if strings.ToLower(strings.TrimSpace(os.Getenv("STEP_CA_INSECURE"))) == "true" {
-        insecure = true
-    }
-
-    // transport s možností vypnout TLS verify (explicitně přes env)
     tr := &http.Transport{
         Proxy: http.ProxyFromEnvironment,
         DialContext: (&net.Dialer{
-            Timeout:   30 * time.Second,
+            Timeout:   5 * time.Second,
             KeepAlive: 30 * time.Second,
         }).DialContext,
-        TLSHandshakeTimeout: 10 * time.Second,
+        ForceAttemptHTTP2:     true,
+        MaxIdleConns:          100,
+        IdleConnTimeout:       90 * time.Second,
+        TLSHandshakeTimeout:   5 * time.Second,
+        ExpectContinueTimeout: 1 * time.Second,
     }
 
-    if insecure {
-        tr.TLSClientConfig = &tls.Config{
-            InsecureSkipVerify: true,
-        }
+    if parsed.Scheme == "https" && cfg.InsecureSkipVerify {
+        tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
     }
 
     client := &http.Client{
-        Timeout:   timeout,
         Transport: tr,
+        Timeout:   timeout,
     }
 
-    c := &StepClient{
-        CAURL:           settings.CAURL,
-        RootFingerprint: settings.RootFingerprint,
-        ACMEDirectories: settings.ACMEDirectories,
-        httpClient:      client,
-    }
-
-    // initial provisioner from settings (if present)
-    c.mu.Lock()
-    c.ProvisionerName = settings.ProvisionerName
-    c.ProvisionerSecret = "" // do not persist secrets from settings
-    c.mu.Unlock()
-
-    return c
-}
-
-// UseProvisioner nastaví provisioner a secret do paměti klienta.
-// Pokud sdílíš klienta mezi gorutinami, toto je thread-safe.
-func (c *StepClient) UseProvisioner(name, secret string) {
-    c.mu.Lock()
-    c.ProvisionerName = name
-    c.ProvisionerSecret = secret
-    c.mu.Unlock()
-}
-
-// getProvisionerCredentials vrátí aktuální provisioner name a secret (thread-safe).
-func (c *StepClient) getProvisionerCredentials() (string, string) {
-    c.mu.RLock()
-    defer c.mu.RUnlock()
-    return c.ProvisionerName, c.ProvisionerSecret
-}
-
-// ------------------------------------------------------------
-// Provisionery
-// ------------------------------------------------------------
-
-type Provisioner struct {
-    Name string `json:"name"`
-    Type string `json:"type"`
-}
-
-type provisionerListResponse struct {
-    Provisioners []Provisioner `json:"provisioners"`
-}
-
-// ListProvisioners načte seznam provisionerů ze step-ca.
-func (c *StepClient) ListProvisioners() ([]Provisioner, error) {
-    url := fmt.Sprintf("%s/provisioners", strings.TrimRight(c.CAURL, "/"))
-
-    req, err := http.NewRequest(http.MethodGet, url, nil)
-    if err != nil {
-        return nil, fmt.Errorf("creating request for provisioners: %w", err)
-    }
-    req.Header.Set("Accept", "application/json")
-
-    resp, err := c.httpClient.Do(req)
-    if err != nil {
-        return nil, fmt.Errorf("request to step-ca /provisioners failed: %w", err)
-    }
-    defer resp.Body.Close()
-
-    body, _ := io.ReadAll(resp.Body)
-    if resp.StatusCode != http.StatusOK {
-        return nil, fmt.Errorf("step-ca /provisioners returned %d: %s", resp.StatusCode, string(body))
-    }
-
-    var out provisionerListResponse
-    if err := json.Unmarshal(body, &out); err != nil {
-        return nil, fmt.Errorf("decoding provisioner list: %w", err)
-    }
-
-    return out.Provisioners, nil
-}
-
-// GetProvisioner načte detail provisioneru best-effort (pokud step-ca nemá dedicated endpoint, hledá v listu).
-func (c *StepClient) GetProvisioner(name string) (*Provisioner, error) {
-    provs, err := c.ListProvisioners()
-    if err != nil {
-        return nil, err
-    }
-    for _, p := range provs {
-        if p.Name == name {
-            return &p, nil
-        }
-    }
-    return nil, fmt.Errorf("provisioner %s not found in step-ca", name)
-}
-
-// CreateProvisioner vytvoří provisioner v step-ca.
-// payload může obsahovat "secret" nebo "password" podle potřeby.
-// Secret je předán pouze v tomto volání a není nikde persistován.
-func (c *StepClient) CreateProvisioner(payload map[string]interface{}) error {
-    url := fmt.Sprintf("%s/provisioners", strings.TrimRight(c.CAURL, "/"))
-
-    body, _ := json.Marshal(payload)
-    req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-    if err != nil {
-        return fmt.Errorf("creating request to step-ca /provisioners: %w", err)
-    }
-    req.Header.Set("Content-Type", "application/json")
-
-    resp, err := c.httpClient.Do(req)
-    if err != nil {
-        return fmt.Errorf("request to step-ca /provisioners failed: %w", err)
-    }
-    defer resp.Body.Close()
-
-    respBody, _ := io.ReadAll(resp.Body)
-    if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-        return fmt.Errorf("step-ca /provisioners returned %d: %s", resp.StatusCode, string(respBody))
-    }
-
-    return nil
-}
-
-// DeleteProvisioner smaže provisioner v step-ca.
-// payload může obsahovat secret pokud step-ca vyžaduje autentizaci při smazání.
-func (c *StepClient) DeleteProvisioner(name string, payload map[string]interface{}) error {
-    url := fmt.Sprintf("%s/provisioners/%s", strings.TrimRight(c.CAURL, "/"), name)
-
-    var req *http.Request
-    var err error
-    if payload != nil {
-        body, _ := json.Marshal(payload)
-        req, err = http.NewRequest(http.MethodDelete, url, bytes.NewReader(body))
-        if err == nil {
-            req.Header.Set("Content-Type", "application/json")
-        }
-    } else {
-        req, err = http.NewRequest(http.MethodDelete, url, nil)
-    }
-    if err != nil {
-        return fmt.Errorf("creating delete request: %w", err)
-    }
-
-    resp, err := c.httpClient.Do(req)
-    if err != nil {
-        return fmt.Errorf("request to step-ca DELETE /provisioners/%s failed: %w", name, err)
-    }
-    defer resp.Body.Close()
-
-    respBody, _ := io.ReadAll(resp.Body)
-    if resp.StatusCode != http.StatusOK {
-        return fmt.Errorf("step-ca DELETE /provisioners/%s returned %d: %s", name, resp.StatusCode, string(respBody))
-    }
-
-    return nil
-}
-
-// ------------------------------------------------------------
-// Vydání certifikátu
-// ------------------------------------------------------------
-
-type CertificateRequest struct {
-    CommonName string   `json:"common_name"`
-    DNSNames   []string `json:"dns_names"`
-}
-
-type CertificateResponse struct {
-    Certificate string `json:"crt"` // PEM
-    PrivateKey  string `json:"key"` // PEM
-    CABundle    string `json:"ca"`  // PEM
-}
-
-// IssueCertificate zavolá step-ca a vrátí PEM cert, key, ca.
-// Použije aktuální provisioner a secret z klienta (v paměti).
-func (c *StepClient) IssueCertificate(req CertificateRequest) (*CertificateResponse, error) {
-    url := fmt.Sprintf("%s/sign", strings.TrimRight(c.CAURL, "/"))
-
-    provName, provSecret := c.getProvisionerCredentials()
-
-    payload := map[string]interface{}{
-        "common_name": req.CommonName,
-        "dns_names":   req.DNSNames,
-    }
-    if provName != "" {
-        payload["provisioner"] = provName
-    }
-    if provSecret != "" {
-        payload["password"] = provSecret
-    }
-
-    body, err := json.Marshal(payload)
-    if err != nil {
-        return nil, fmt.Errorf("marshal sign payload: %w", err)
-    }
-
-    httpReq, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-    if err != nil {
-        return nil, fmt.Errorf("creating sign request: %w", err)
-    }
-    httpReq.Header.Set("Content-Type", "application/json")
-
-    resp, err := c.httpClient.Do(httpReq)
-    if err != nil {
-        return nil, fmt.Errorf("request to step-ca /sign failed: %w", err)
-    }
-    defer resp.Body.Close()
-
-    respBody, _ := io.ReadAll(resp.Body)
-    if resp.StatusCode != http.StatusOK {
-        return nil, fmt.Errorf("step-ca /sign returned %d: %s", resp.StatusCode, string(respBody))
-    }
-
-    var out CertificateResponse
-    if err := json.Unmarshal(respBody, &out); err != nil {
-        return nil, fmt.Errorf("decoding sign response: %w", err)
-    }
-
-    return &out, nil
-}
-
-// ------------------------------------------------------------
-// Revokace certifikátu
-// ------------------------------------------------------------
-
-func (c *StepClient) RevokeCertificate(serial string) error {
-    url := fmt.Sprintf("%s/revoke", strings.TrimRight(c.CAURL, "/"))
-
-    provName, provSecret := c.getProvisionerCredentials()
-
-    payload := map[string]string{
-        "serial": serial,
-    }
-    if provName != "" {
-        payload["provisioner"] = provName
-    }
-    if provSecret != "" {
-        payload["password"] = provSecret
-    }
-
-    body, err := json.Marshal(payload)
-    if err != nil {
-        return fmt.Errorf("marshal revoke payload: %w", err)
-    }
-
-    req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(body))
-    if err != nil {
-        return fmt.Errorf("creating revoke request: %w", err)
-    }
-    req.Header.Set("Content-Type", "application/json")
-
-    resp, err := c.httpClient.Do(req)
-    if err != nil {
-        return fmt.Errorf("request to step-ca /revoke failed: %w", err)
-    }
-    defer resp.Body.Close()
-
-    respBody, _ := io.ReadAll(resp.Body)
-    if resp.StatusCode != http.StatusOK {
-        return fmt.Errorf("step-ca /revoke returned %d: %s", resp.StatusCode, string(respBody))
-    }
-
-    return nil
-}
-
-// ------------------------------------------------------------
-// Balíček certifikátu (PEM/DER/CRT + key + CA + README)
-// ------------------------------------------------------------
-
-type PackageFormat string
-
-const (
-    PackageFormatZIP PackageFormat = "zip"
-)
-
-func (c *StepClient) BuildCertificatePackage(commonName string, resp *CertificateResponse) ([]byte, error) {
-    buf := &bytes.Buffer{}
-    zipWriter := zip.NewWriter(buf)
-
-    base := sanitizeFilename(commonName)
-    if base == "" {
-        base = "certificate"
-    }
-
-    if err := addFileToZip(zipWriter, fmt.Sprintf("%s.pem", base), []byte(resp.Certificate)); err != nil {
-        return nil, err
-    }
-    if err := addFileToZip(zipWriter, fmt.Sprintf("%s.crt", base), []byte(resp.Certificate)); err != nil {
-        return nil, err
-    }
-
-    der, err := pemToDER([]byte(resp.Certificate))
-    if err == nil && len(der) > 0 {
-        if err := addFileToZip(zipWriter, fmt.Sprintf("%s.der", base), der); err != nil {
-            return nil, err
-        }
-    }
-
-    if err := addFileToZip(zipWriter, fmt.Sprintf("%s.key", base), []byte(resp.PrivateKey)); err != nil {
-        return nil, err
-    }
-
-    if err := addFileToZip(zipWriter, "ca.crt", []byte(resp.CABundle)); err != nil {
-        return nil, err
-    }
-
-    readme := GenerateCertificateReadme(commonName)
-    if err := addFileToZip(zipWriter, "README.txt", []byte(readme)); err != nil {
-        return nil, err
-    }
-
-    if err := zipWriter.Close(); err != nil {
-        return nil, fmt.Errorf("closing zip writer: %w", err)
-    }
-
-    return buf.Bytes(), nil
-}
-
-func addFileToZip(z *zip.Writer, name string, data []byte) error {
-    f, err := z.Create(filepath.ToSlash(name))
-    if err != nil {
-        return fmt.Errorf("create zip entry %s: %w", name, err)
-    }
-    if _, err := f.Write(data); err != nil {
-        return fmt.Errorf("write zip entry %s: %w", name, err)
-    }
-    return nil
-}
-
-func pemToDER(pemBytes []byte) ([]byte, error) {
-    block, _ := pem.Decode(pemBytes)
-    if block == nil {
-        return nil, fmt.Errorf("failed to decode PEM")
-    }
-    cert, err := x509.ParseCertificate(block.Bytes)
-    if err != nil {
-        return nil, fmt.Errorf("parse certificate: %w", err)
-    }
-    return cert.Raw, nil
-}
-
-// ------------------------------------------------------------
-// Certificate metadata parser
-// ------------------------------------------------------------
-
-type CertificateMetadata struct {
-    Serial    string
-    NotBefore time.Time
-    NotAfter  time.Time
-}
-
-func ParseCertificateMetadata(pemCert string) (*CertificateMetadata, error) {
-    block, _ := pem.Decode([]byte(pemCert))
-    if block == nil {
-        return nil, fmt.Errorf("failed to decode PEM certificate")
-    }
-
-    cert, err := x509.ParseCertificate(block.Bytes)
-    if err != nil {
-        return nil, fmt.Errorf("failed to parse certificate: %w", err)
-    }
-
-    return &CertificateMetadata{
-        Serial:    cert.SerialNumber.String(),
-        NotBefore: cert.NotBefore,
-        NotAfter:  cert.NotAfter,
+    return &StepClient{
+        baseURL:    parsed,
+        httpClient: client,
     }, nil
 }
 
-// ------------------------------------------------------------
-// Helpers
-// ------------------------------------------------------------
-
-func sanitizeFilename(s string) string {
-    s = strings.TrimSpace(s)
-    s = strings.ReplaceAll(s, " ", "_")
-    s = strings.ReplaceAll(s, "/", "_")
-    s = strings.ReplaceAll(s, "\\", "_")
-    s = strings.ReplaceAll(s, ":", "_")
-    s = strings.ReplaceAll(s, "*", "_")
-    s = strings.ReplaceAll(s, "?", "_")
-    s = strings.ReplaceAll(s, "\"", "_")
-    s = strings.ReplaceAll(s, "<", "_")
-    s = strings.ReplaceAll(s, ">", "_")
-    s = strings.ReplaceAll(s, "|", "_")
-    return s
+// buildURL joins base URL with path and optional query values.
+func (c *StepClient) buildURL(path string, q url.Values) string {
+    u := *c.baseURL
+    u.Path = strings.TrimRight(u.Path, "/") + "/" + strings.TrimLeft(path, "/")
+    u.RawQuery = q.Encode()
+    return u.String()
 }
 
-func getEnv(key, def string) string {
-    if v := strings.TrimSpace(os.Getenv(key)); v != "" {
-        return v
+// doRequest performs an HTTP request with optional JSON body and decodes JSON response into out (if non-nil).
+func (c *StepClient) doRequest(ctx context.Context, method, path string, query url.Values, body interface{}, out interface{}, headers map[string]string) error {
+    var bodyReader io.Reader
+    if body != nil {
+        b, err := json.Marshal(body)
+        if err != nil {
+            return fmt.Errorf("step: marshal body: %w", err)
+        }
+        bodyReader = bytes.NewReader(b)
     }
-    return def
+
+    req, err := http.NewRequestWithContext(ctx, method, c.buildURL(path, query), bodyReader)
+    if err != nil {
+        return fmt.Errorf("step: new request: %w", err)
+    }
+    if body != nil {
+        req.Header.Set("Content-Type", "application/json")
+    }
+    req.Header.Set("Accept", "application/json")
+
+    // merge headers: first client-level (if any) then per-request
+    // Note: Config.Headers are not stored on client in this implementation; add if needed.
+    for k, v := range headers {
+        req.Header.Set(k, v)
+    }
+
+    resp, err := c.httpClient.Do(req)
+    if err != nil {
+        return fmt.Errorf("step: request failed: %w", err)
+    }
+    defer resp.Body.Close()
+
+    respBytes, err := io.ReadAll(resp.Body)
+    if err != nil {
+        return fmt.Errorf("step: read response: %w", err)
+    }
+
+    if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+        var apiErr APIError
+        _ = json.Unmarshal(respBytes, &apiErr)
+        if apiErr.Message == "" {
+            apiErr.Message = fmt.Sprintf("unexpected status %d: %s", resp.StatusCode, string(respBytes))
+        }
+        apiErr.Code = resp.StatusCode
+        return &apiErr
+    }
+
+    if out == nil || len(respBytes) == 0 {
+        return nil
+    }
+
+    if err := json.Unmarshal(respBytes, out); err != nil {
+        return fmt.Errorf("step: decode response: %w", err)
+    }
+    return nil
 }
 
-// GenerateCertificateReadme returns a short README for packaged certificates.
-func GenerateCertificateReadme(commonName string) string {
-    base := sanitizeFilename(commonName)
-    if base == "" {
-        base = "certificate"
+// ValidateServer performs lightweight checks against the step-ca server API.
+// It calls /version and /provisioners to verify the server is reachable and responds.
+// Returns nil on success or an error describing the first failure.
+// Callers (e.g., main startup) should log returned error to runtime logs.
+func (c *StepClient) ValidateServer(ctx context.Context) error {
+    // Check version
+    var ver map[string]interface{}
+    if err := c.doRequest(ctx, http.MethodGet, pathVersion, nil, nil, &ver, nil); err != nil {
+        // try health as fallback
+        var health map[string]interface{}
+        if err2 := c.doRequest(ctx, http.MethodGet, pathHealth, nil, nil, &health, nil); err2 != nil {
+            return fmt.Errorf("step: version/health check failed: version err: %v; health err: %v", err, err2)
+        }
+    } 
+
+    // Check provisioners endpoint (admin API may require auth; if 401/403 returned, return that error)
+    var provResp struct {
+        Items []Provisioner `json:"items"`
+    }
+    if err := c.doRequest(ctx, http.MethodGet, pathProvisioners, nil, nil, &provResp, nil); err != nil {
+        // If server returns 404 for provisioners, it may be a minimal server build; still return error so caller can log.
+        return fmt.Errorf("step: provisioners endpoint check failed: %w", err)
+    }
+    return nil
+}
+
+// -----------------------------
+// Provisioner methods (server API)
+// -----------------------------
+
+func (c *StepClient) ListProvisioners(ctx context.Context) ([]Provisioner, error) {
+    var out struct {
+        Items []Provisioner `json:"items"`
+    }
+    if err := c.doRequest(ctx, http.MethodGet, pathProvisioners, nil, nil, &out, nil); err != nil {
+        // fallback: try direct array decode
+        var arr []Provisioner
+        if err2 := c.doRequest(ctx, http.MethodGet, pathProvisioners, nil, nil, &arr, nil); err2 == nil {
+            return arr, nil
+        }
+        return nil, err
+    }
+    return out.Items, nil
+}
+
+func (c *StepClient) GetProvisioner(ctx context.Context, name string) (*Provisioner, error) {
+    if name == "" {
+        return nil, errors.New("name required")
+    }
+    var p Provisioner
+    path := fmt.Sprintf(pathProvisioner, url.PathEscape(name))
+    if err := c.doRequest(ctx, http.MethodGet, path, nil, nil, &p, nil); err != nil {
+        if apiErr, ok := err.(*APIError); ok && apiErr.Code == http.StatusNotFound {
+            return nil, nil
+        }
+        return nil, err
+    }
+    return &p, nil
+}
+
+func (c *StepClient) CreateProvisioner(ctx context.Context, p *Provisioner, secret string) error {
+    if p == nil {
+        return errors.New("provisioner required")
+    }
+    payload := map[string]interface{}{
+        "name": p.Name,
+        "type": p.Type,
+    }
+    if len(p.ACMEDirectories) > 0 {
+        payload["acme_directories"] = p.ACMEDirectories
+    }
+    if secret != "" {
+        payload["secret"] = secret
+    }
+    return c.doRequest(ctx, http.MethodPost, pathProvisioners, nil, payload, nil, nil)
+}
+
+func (c *StepClient) DeleteProvisioner(ctx context.Context, name string, secret string) error {
+    if name == "" {
+        return errors.New("name required")
+    }
+    payload := map[string]interface{}{}
+    if secret != "" {
+        payload["secret"] = secret
+    }
+    path := fmt.Sprintf(pathProvisioner, url.PathEscape(name))
+    return c.doRequest(ctx, http.MethodDelete, path, nil, payload, nil, nil)
+}
+
+func (c *StepClient) SelectProvisioner(ctx context.Context, name string, secret string) error {
+    if name == "" {
+        return errors.New("name required")
+    }
+    path := fmt.Sprintf(pathSelectProvisioner, url.PathEscape(name))
+    payload := map[string]interface{}{}
+    if secret != "" {
+        payload["secret"] = secret
+    }
+    return c.doRequest(ctx, http.MethodPost, path, nil, payload, nil, nil)
+}
+
+// -----------------------------
+// Certificate operations (server API)
+// -----------------------------
+
+// IssueCertificate requests a new certificate. Uses canonical /sign endpoint.
+// If req.CommonName is provided and req.DNSNames, we construct a subject payload.
+// If caller provides a CSR (via req.CSRPEM in SignCSRRequest style), prefer CSR.
+func (c *StepClient) IssueCertificate(ctx context.Context, req IssueCertificateRequest, secret string) (*IssueCertificateResponse, error) {
+    payload := map[string]interface{}{}
+    // If caller provided NotAfterDays include it
+    if req.NotAfterDays > 0 {
+        payload["not_after_days"] = req.NotAfterDays
+    }
+    // If DNSNames or CommonName provided, construct subject
+    if req.CommonName != "" || len(req.DNSNames) > 0 {
+        subject := map[string]interface{}{}
+        if req.CommonName != "" {
+            subject["common_name"] = req.CommonName
+        }
+        if len(req.DNSNames) > 0 {
+            subject["dns_names"] = req.DNSNames
+        }
+        payload["subject"] = subject
+    }
+    if secret != "" {
+        payload["secret"] = secret
     }
 
-    return fmt.Sprintf(`# Certificate issued for %s
+    var out IssueCertificateResponse
+    if err := c.doRequest(ctx, http.MethodPost, pathSign, nil, payload, &out, nil); err != nil {
+        return nil, err
+    }
+    return &out, nil
+}
 
-## Files
+// SignCSR sends a CSR to /sign for signing.
+func (c *StepClient) SignCSR(ctx context.Context, req SignCSRRequest, secret string) (*SignCSRResponse, error) {
+    payload := map[string]interface{}{
+        "csr": req.CSRPEM,
+    }
+    if req.NotAfterDays > 0 {
+        payload["not_after_days"] = req.NotAfterDays
+    }
+    if secret != "" {
+        payload["secret"] = secret
+    }
+    var out SignCSRResponse
+    if err := c.doRequest(ctx, http.MethodPost, pathSign, nil, payload, &out, nil); err != nil {
+        return nil, err
+    }
+    return &out, nil
+}
 
-- %s.pem  – certificate in PEM format
-- %s.crt  – certificate in PEM format (CRT extension)
-- %s.der  – certificate in DER (binary) format
-- %s.key  – private key in PEM format
-- ca.crt  – CA bundle
+// GetCertificate fetches certificate metadata and PEMs by id.
+func (c *StepClient) GetCertificate(ctx context.Context, id string) (*IssueCertificateResponse, error) {
+    if id == "" {
+        return nil, errors.New("id required")
+    }
+    var out IssueCertificateResponse
+    path := fmt.Sprintf(pathCertificate, url.PathEscape(id))
+    if err := c.doRequest(ctx, http.MethodGet, path, nil, nil, &out, nil); err != nil {
+        if apiErr, ok := err.(*APIError); ok && apiErr.Code == http.StatusNotFound {
+            return nil, nil
+        }
+        return nil, err
+    }
+    return &out, nil
+}
 
-## Usage examples
+// DownloadCertificatePackage returns an absolute URL to download a ZIP package for the certificate.
+func (c *StepClient) DownloadCertificatePackage(ctx context.Context, id string) (string, error) {
+    if id == "" {
+        return "", errors.New("id required")
+    }
+    path := fmt.Sprintf(pathCertificateDownload, url.PathEscape(id))
+    return c.buildURL(path, nil), nil
+}
 
-### NGINX
-
-ssl_certificate     %s.crt;
-ssl_certificate_key %s.key;
-ssl_trusted_certificate ca.crt;
-
-### Apache
-
-SSLCertificateFile      %s.crt
-SSLCertificateKeyFile   %s.key
-SSLCACertificateFile    ca.crt
-
-### Linux (system-wide)
-
-sudo cp %s.crt /etc/ssl/certs/
-sudo cp %s.key /etc/ssl/private/
-sudo cp ca.crt /etc/ssl/certs/
-
-`, commonName,
-        base, base, base, base,
-        base, base,
-        base, base,
-        base, base,
-    )
+// RevokeCertificate revokes a certificate by serial using canonical /revoke endpoint.
+func (c *StepClient) RevokeCertificate(ctx context.Context, serial string, secret string) (*RevokeResponse, error) {
+    if serial == "" {
+        return nil, errors.New("serial required")
+    }
+    payload := map[string]interface{}{
+        "serial": serial,
+    }
+    if secret != "" {
+        payload["secret"] = secret
+    }
+    var out RevokeResponse
+    if err := c.doRequest(ctx, http.MethodPost, pathRevoke, nil, payload, &out, nil); err != nil {
+        return nil, err
+    }
+    return &out, nil
 }
