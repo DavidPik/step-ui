@@ -12,18 +12,18 @@ services:
     volumes:
       - backend-data:/data
     ports:
-      - "9000:8080"
+      - "9900:8080"
 
   frontend:
     image: ghcr.io/davidpik/step-ui-frontend:latest
     container_name: step-ui-frontend
     restart: unless-stopped
     environment:
-      - BACKEND_URL=http://backend:8080
+      - BACKEND_URL=http://backend:9900
     depends_on:
       - backend
     ports:
-      - "3000:3000"
+      - "9000:3000"
 
 volumes:
   backend-data:
