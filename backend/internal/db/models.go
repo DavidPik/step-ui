@@ -1,82 +1,117 @@
 package db
 
 import (
-    "strings"
+    "context"
+    "database/sql"
+    "encoding/json"
     "time"
 
-    "gorm.io/gorm"
+    "github.com/jmoiron/sqlx"
 )
 
-type Certificate struct {
-    ID             uint      `gorm:"primaryKey" json:"id"`
-    CommonName     string    `json:"common_name"`
-    DNSNames       string    `json:"dns_names"`
-    Serial         string    `json:"serial"`
-    NotBefore      time.Time `json:"not_before"`
-    NotAfter       time.Time `json:"not_after"`
+// -----------------------------
+// Data models
+// -----------------------------
 
-    CertificatePEM string `gorm:"type:longtext" json:"certificate_pem"`
-    PrivateKeyPEM  string `gorm:"type:longtext" json:"private_key_pem"`
-    CAChainPEM     string `gorm:"type:longtext" json:"ca_chain_pem"`
-
-    CreatedAt time.Time `json:"created_at"`
-}
-
-type AuditEvent struct {
-    ID        uint      `gorm:"primaryKey" json:"id"`
-    User      string    `json:"user"`
-    Action    string    `json:"action"`
-    Details   string    `json:"details"`
-    CreatedAt time.Time `json:"created_at"`
-}
-
+// CASettings holds global CA configuration stored in DB.
 type CASettings struct {
-    ID                uint      `gorm:"primaryKey" json:"id"`
-    CAURL             string    `json:"ca_url"`
-    RootFingerprint   string    `json:"root_fingerprint"`
-    ProvisionerName   string    `json:"provisioner_name"`
-    ProvisionerSecret string    `json:"provisioner_secret"`
-    // ACMEDirectories stored as CSV in DB column "acme_directories"
-    ACMEDirectoriesCSV string   `gorm:"column:acme_directories" json:"-"`
-    ACMEDirectories    []string `gorm:"-" json:"acme_directories"`
-
-    CreatedAt time.Time `json:"created_at"`
+    ID              int64     `db:"id"`
+    CAURL           string    `db:"ca_url"`
+    RootFingerprint string    `db:"root_fingerprint"`
+    ProvisionerName string    `db:"provisioner_name"`
+    ACMEDirectories string    `db:"acme_directories"` // JSON array stored as text
+    CreatedAt       time.Time `db:"created_at"`
+    UpdatedAt       time.Time `db:"updated_at"`
 }
 
-func (c *CASettings) BeforeSave(tx *gorm.DB) error {
-    c.ACMEDirectoriesCSV = strings.Join(c.ACMEDirectories, ",")
-    return nil
-}
-
-func (c *CASettings) AfterFind(tx *gorm.DB) error {
-    if c.ACMEDirectoriesCSV == "" {
-        c.ACMEDirectories = []string{}
-    } else {
-        c.ACMEDirectories = strings.Split(c.ACMEDirectoriesCSV, ",")
-    }
-    return nil
-}
-
-// Provisioner stores metadata only. Secrets are NOT persisted.
+// Provisioner represents a provisioner configured via UI.
+// Note: provisioner secret is NOT persisted.
 type Provisioner struct {
-    ID                 uint      `gorm:"primaryKey" json:"id"`
-    Name               string    `gorm:"uniqueIndex" json:"name"`
-    Type               string    `json:"type"`
-    ACMEDirectoriesCSV string    `gorm:"column:acme_directories" json:"-"`
-    ACMEDirectories    []string  `gorm:"-" json:"acme_directories"`
-    CreatedAt          time.Time `json:"created_at"`
+    Name           string    `db:"name"`
+    Type           string    `db:"type"`
+    ACMEDirectories string   `db:"acme_directories"` // JSON array as text
+    CreatedAt      time.Time `db:"created_at"`
 }
 
-func (p *Provisioner) BeforeSave(tx *gorm.DB) error {
-    p.ACMEDirectoriesCSV = strings.Join(p.ACMEDirectories, ",")
-    return nil
+// Certificate represents a certificate record.
+// We intentionally DO NOT store private_key_pem here.
+type Certificate struct {
+    ID            string         `db:"id"`
+    CommonName    string         `db:"common_name"`
+    DNSNames      string         `db:"dns_names"` // JSON array as text
+    Serial        string         `db:"serial"`
+    NotBefore     time.Time      `db:"not_before"`
+    NotAfter      time.Time      `db:"not_after"`
+    CertificatePEM sql.NullString `db:"certificate_pem"`
+    CAChainPEM    sql.NullString `db:"ca_chain_pem"`
+    Status        string         `db:"status"` // active | revoked
+    CreatedAt     time.Time      `db:"created_at"`
+    RevokedAt     sql.NullTime   `db:"revoked_at"`
 }
 
-func (p *Provisioner) AfterFind(tx *gorm.DB) error {
-    if p.ACMEDirectoriesCSV == "" {
-        p.ACMEDirectories = []string{}
-    } else {
-        p.ACMEDirectories = strings.Split(p.ACMEDirectoriesCSV, ",")
+// AuditEvent logs actions performed in the system.
+type AuditEvent struct {
+    ID        int64     `db:"id"`
+    Timestamp time.Time `db:"timestamp"`
+    Action    string    `db:"action"`
+    User      string    `db:"user"`
+    Details   string    `db:"details"`
+    IP        string    `db:"ip"`
+}
+
+// -----------------------------
+// Helper types for JSON fields
+// -----------------------------
+
+// StringArrayToJSON converts string slice to JSON string for storage.
+func StringArrayToJSON(arr []string) (string, error) {
+    if arr == nil {
+        return "[]", nil
     }
-    return nil
+    b, err := json.Marshal(arr)
+    if err != nil {
+        return "", err
+    }
+    return string(b), nil
 }
+
+// JSONToStringArray converts stored JSON string to []string.
+func JSONToStringArray(s string) ([]string, error) {
+    if s == "" {
+        return []string{}, nil
+    }
+    var out []string
+    if err := json.Unmarshal([]byte(s), &out); err != nil {
+        return nil, err
+    }
+    return out, nil
+}
+
+// -----------------------------
+// CRUD interface (implemented in db.go)
+// -----------------------------
+
+// The following functions are implemented in db.go and exposed here for consumers:
+//
+// func InitDB(ctx context.Context, dsn string) (*DB, error)
+// func (db *DB) Close() error
+//
+// CA settings
+// func (db *DB) GetCASettings(ctx context.Context) (*CASettings, error)
+// func (db *DB) UpdateCASettings(ctx context.Context, s *CASettings) error
+//
+// Provisioners
+// func (db *DB) ListProvisioners(ctx context.Context) ([]Provisioner, error)
+// func (db *DB) GetProvisioner(ctx context.Context, name string) (*Provisioner, error)
+// func (db *DB) CreateProvisioner(ctx context.Context, p *Provisioner) error
+// func (db *DB) DeleteProvisioner(ctx context.Context, name string) error
+//
+// Certificates
+// func (db *DB) ListCertificates(ctx context.Context) ([]Certificate, error)
+// func (db *DB) GetCertificate(ctx context.Context, id string) (*Certificate, error)
+// func (db *DB) CreateCertificate(ctx context.Context, c *Certificate) error
+// func (db *DB) RevokeCertificate(ctx context.Context, serial string) error
+// func (db *DB) DeleteCertificate(ctx context.Context, id string) error
+//
+// Audit
+// func (db *DB) LogAudit(ctx context.Context, action, user, details, ip string) error
