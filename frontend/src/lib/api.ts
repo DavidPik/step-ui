@@ -9,10 +9,6 @@ import type {
   ListResponse,
 } from "./types";
 
-// ---------------------------------------------------------
-// Axios instance
-// ---------------------------------------------------------
-
 const api = axios.create({
   baseURL: "/api",
   headers: {
@@ -20,15 +16,10 @@ const api = axios.create({
   },
 });
 
-// ---------------------------------------------------------
-// API Client
-// ---------------------------------------------------------
-
 export const apiClient = {
-  // -----------------------------------------------------
+  //
   // PROVISIONERS
-  // -----------------------------------------------------
-
+  //
   listProvisioners: async (): Promise<ListResponse<Provisioner>> => {
     const res = await api.get("/provisioners");
     return res.data;
@@ -37,6 +28,8 @@ export const apiClient = {
   createProvisioner: async (data: {
     name: string;
     type: string;
+    jwk?: string;
+    acme_directories?: string[];
     secret?: string;
   }) => {
     const res = await api.post("/provisioners", data);
@@ -51,19 +44,19 @@ export const apiClient = {
     return res.data;
   },
 
-  selectProvisioner: async (name: string, secret?: string) => {
-    const payload = secret ? { secret } : {};
-    const res = await api.post(
-      `/provisioners/${encodeURIComponent(name)}/select`,
-      payload
-    );
+  getProvisionerStatuses: async () => {
+    const res = await api.get("/provisioners/status");
     return res.data;
   },
 
-  // -----------------------------------------------------
-  // CERTIFICATES
-  // -----------------------------------------------------
+  getProvisionerStatus: async (name: string) => {
+    const res = await api.get(`/provisioners/${encodeURIComponent(name)}/status`);
+    return res.data;
+  },
 
+  //
+  // CERTIFICATES
+  //
   listCertificates: async (): Promise<ListResponse<CertificateItem>> => {
     const res = await api.get("/certificates");
     return res.data;
@@ -79,7 +72,7 @@ export const apiClient = {
     secret?: string
   ): Promise<IssueCertificateResponse> => {
     const payload = secret ? { ...data, secret } : data;
-    const res = await api.post("/certificates", payload);
+    const res = await api.post("/certificates/issue", payload);
     return res.data;
   },
 
@@ -93,10 +86,9 @@ export const apiClient = {
     return `/api/certificates/${encodeURIComponent(id)}/download`;
   },
 
-  // -----------------------------------------------------
+  //
   // AUDIT LOG
-  // -----------------------------------------------------
-
+  //
   getAuditLog: async (params?: {
     from?: string;
     to?: string;
