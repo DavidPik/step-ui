@@ -7,24 +7,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Dialog, DialogHeader, DialogFooter } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Skeleton } from '@/lib/skeleton';
-
-// ------------------------------------------------------------
-// PAGE
-// ------------------------------------------------------------
 
 export default function AuditLogPage() {
   const [events, setEvents] = useState<AuditEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Filters
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [action, setAction] = useState('');
   const [user, setUser] = useState('');
 
-  // Detail dialog
   const [detailOpen, setDetailOpen] = useState(false);
   const [selected, setSelected] = useState<AuditEvent | null>(null);
 
@@ -64,7 +57,6 @@ export default function AuditLogPage() {
         </div>
 
         <div className="card-body grid grid-cols-1 md:grid-cols-4 gap-4">
-
           <div>
             <Label>From</Label>
             <Input type="datetime-local" value={from} onChange={e => setFrom(e.target.value)} />
@@ -77,12 +69,12 @@ export default function AuditLogPage() {
 
           <div>
             <Label>Action</Label>
-            <Input placeholder="certificate_issued" value={action} onChange={e => setAction(e.target.value)} />
+            <Input value={action} onChange={e => setAction(e.target.value)} />
           </div>
 
           <div>
             <Label>User</Label>
-            <Input placeholder="system" value={user} onChange={e => setUser(e.target.value)} />
+            <Input value={user} onChange={e => setUser(e.target.value)} />
           </div>
 
           <div className="md:col-span-4">
@@ -135,7 +127,6 @@ export default function AuditLogPage() {
         </div>
       </section>
 
-      {/* DETAIL DIALOG */}
       <AuditDetailDialog
         open={detailOpen}
         event={selected}
@@ -144,10 +135,6 @@ export default function AuditLogPage() {
     </div>
   );
 }
-
-// ------------------------------------------------------------
-// DETAIL DIALOG
-// ------------------------------------------------------------
 
 function AuditDetailDialog({
   open,
