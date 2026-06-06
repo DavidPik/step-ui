@@ -1,4 +1,13 @@
 import axios from "axios";
+import type {
+  Provisioner,
+  CertificateItem,
+  CertificateDetail,
+  IssueCertificateRequest,
+  IssueCertificateResponse,
+  AuditEvent,
+  ListResponse,
+} from "./types";
 
 // ---------------------------------------------------------
 // Axios instance
@@ -12,62 +21,7 @@ const api = axios.create({
 });
 
 // ---------------------------------------------------------
-// Types (sjednocené s backendem)
-// ---------------------------------------------------------
-
-export interface Provisioner {
-  name: string;
-  type: string;
-  acme_directories?: string[];
-}
-
-export interface CertificateItem {
-  id: string;
-  common_name: string;
-  dns_names: string[];
-  serial: string;
-  not_before: string;
-  not_after: string;
-}
-
-export interface CertificateDetail {
-  id: string;
-  common_name: string;
-  dns_names: string[];
-  serial: string;
-  not_before: string;
-  not_after: string;
-  certificate_pem: string;
-  ca_bundle_pem: string;
-}
-
-export interface IssueCertificateRequest {
-  common_name: string;
-  dns_names: string[];
-  not_after_days?: number;
-}
-
-export interface IssueCertificateResponse {
-  id: string;
-  serial: string;
-  common_name: string;
-  not_before: string;
-  not_after: string;
-  certificate_pem: string;
-  ca_bundle_pem: string;
-}
-
-export interface AuditEvent {
-  id: string;
-  timestamp: string;
-  action: string;
-  user: string;
-  details: string;
-  ip: string;
-}
-
-// ---------------------------------------------------------
-// API Client (kompatibilní s backendem)
+// API Client
 // ---------------------------------------------------------
 
 export const apiClient = {
@@ -75,7 +29,7 @@ export const apiClient = {
   // PROVISIONERS
   // -----------------------------------------------------
 
-  listProvisioners: async (): Promise<{ items: Provisioner[] }> => {
+  listProvisioners: async (): Promise<ListResponse<Provisioner>> => {
     const res = await api.get("/provisioners");
     return res.data;
   },
@@ -84,7 +38,6 @@ export const apiClient = {
     name: string;
     type: string;
     secret?: string;
-    acme_directories?: string[];
   }) => {
     const res = await api.post("/provisioners", data);
     return res.data;
@@ -111,8 +64,13 @@ export const apiClient = {
   // CERTIFICATES
   // -----------------------------------------------------
 
-  listCertificates: async (): Promise<{ items: CertificateItem[] }> => {
+  listCertificates: async (): Promise<ListResponse<CertificateItem>> => {
     const res = await api.get("/certificates");
+    return res.data;
+  },
+
+  getCertificate: async (id: string): Promise<CertificateDetail> => {
+    const res = await api.get(`/certificates/${encodeURIComponent(id)}`);
     return res.data;
   },
 
@@ -144,7 +102,7 @@ export const apiClient = {
     to?: string;
     action?: string;
     user?: string;
-  }): Promise<{ items: AuditEvent[] }> => {
+  }): Promise<ListResponse<AuditEvent>> => {
     const res = await api.get("/audit", { params });
     return res.data;
   },
