@@ -7,12 +7,15 @@ WORKDIR /app
 
 RUN apk add --no-cache ca-certificates
 
+# Copy go.mod and go.sum first
 COPY go.mod go.sum ./
 RUN go mod download
 
+# Copy the rest of the source
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -o step-ui-backend ./cmd/server
+# Build the backend (main.go is in backend/cmd)
+RUN CGO_ENABLED=0 GOOS=linux go build -o step-ui-backend ./cmd
 
 # ============================
 # 2) Runtime stage
