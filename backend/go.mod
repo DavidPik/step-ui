@@ -1,4 +1,4 @@
-module github.com/davidpik/step-ui/backend
+module github.com/DavidPik/step-ui/backend
 
 go 1.22
 
