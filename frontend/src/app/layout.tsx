@@ -1,7 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
 import { Navigation } from './navigation';
-import { Toaster } from "@/components/ui/toaster"
 
 export const metadata: Metadata = {
   title: 'step-ca Web UI',
@@ -18,7 +17,6 @@ export default function RootLayout({
       <body className="app-body">
         <Navigation />
         <main className="app-main">{children}</main>
-        <Toaster />
       </body>
     </html>
   );
