@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-// Jediný API klient
+// Axios instance
 const api = axios.create({
   baseURL: '/api',
   headers: {
@@ -9,7 +9,7 @@ const api = axios.create({
 })
 
 // -----------------------------
-// Typy odpovídající backendu
+// Types
 // -----------------------------
 
 export interface CertificateItem {
@@ -64,6 +64,8 @@ export interface CASettings {
 export interface Provisioner {
   name: string
   type: string
+  acme_directories?: string[]
+  is_active?: boolean
 }
 
 export interface AuditEvent {
@@ -76,7 +78,7 @@ export interface AuditEvent {
 }
 
 // -----------------------------
-// API volání
+// API client
 // -----------------------------
 
 export const apiClient = {
@@ -106,22 +108,42 @@ export const apiClient = {
     return res.data
   },
 
-  selectProvisioner: async (name: string, secret: string) => {
-    const res = await api.post('/provisioners/select', { name, secret })
+  getProvisioner: async (name: string): Promise<Provisioner> => {
+    const res = await api.get(`/provisioners/${encodeURIComponent(name)}`)
     return res.data
   },
 
+  /**
+   * Create a provisioner.
+   * payload may include secret (frontend will prompt user when required).
+   */
   createProvisioner: async (data: {
     name: string
     type: string
     secret?: string
+    acme_directories?: string[]
   }) => {
     const res = await api.post('/provisioners', data)
     return res.data
   },
 
-  deleteProvisioner: async (name: string) => {
-    const res = await api.delete(`/provisioners/${name}`)
+  /**
+   * Delete a provisioner.
+   * If a secret is required by the backend/CA, pass it in the body.
+   */
+  deleteProvisioner: async (name: string, secret?: string) => {
+    // axios.delete supports sending a request body via the config.data field
+    const config = secret ? { data: { secret } } : undefined
+    const res = await api.delete(`/provisioners/${encodeURIComponent(name)}`, config)
+    return res.data
+  },
+
+  /**
+   * Select a provisioner as active.
+   * Frontend must prompt for secret and pass it here when required.
+   */
+  selectProvisioner: async (name: string, secret?: string) => {
+    const res = await api.post('/provisioners/select', { name, secret })
     return res.data
   },
 
@@ -134,25 +156,29 @@ export const apiClient = {
   },
 
   getCertificate: async (id: string): Promise<CertificateDetail> => {
-    const res = await api.get(`/certificates/${id}`)
+    const res = await api.get(`/certificates/${encodeURIComponent(id)}`)
     return res.data
   },
 
   issueCertificate: async (
-    data: IssueCertificateRequest
+    data: IssueCertificateRequest,
+    // secret is provided by frontend when required for the active provisioner
+    secret?: string
   ): Promise<IssueCertificateResponse> => {
-    const res = await api.post('/certificates/issue', data)
+    const payload = secret ? { ...data, secret } : data
+    const res = await api.post('/certificates/issue', payload)
     return res.data
   },
 
-  revokeCertificate: async (serial: string) => {
-    const res = await api.post('/certificates/revoke', { serial })
+  revokeCertificate: async (serial: string, secret?: string) => {
+    const payload = secret ? { serial, secret } : { serial }
+    const res = await api.post('/certificates/revoke', payload)
     return res.data
   },
 
   downloadCertificatePackage: (id: string) => {
     // Vrací URL pro <a href>
-    return `/api/certificates/${id}/download`
+    return `/api/certificates/${encodeURIComponent(id)}/download`
   },
 
   //
