@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog'
 import { Label } from '@/components/ui/label'
 import { toast } from "@/components/ui/use-toast"
+import { Skeleton } from "@/src/lib/skeleton"
 
 // ------------------------------------------------------------
 // PAGE
