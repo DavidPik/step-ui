@@ -8,10 +8,14 @@
   --color-success: #16a34a;
   --color-danger: #dc2626;
   --color-info: #0ea5e9;
+
   --radius-md: 0.5rem;
+
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.08);
   --shadow-md: 0 4px 6px rgba(15, 23, 42, 0.08);
 }
+
+/* Reset */
 
 *,
 *::before,
@@ -33,7 +37,9 @@ body.app-body {
   color: var(--color-text);
 }
 
-/* Layout */
+/* ------------------------------------------------------------
+   LAYOUT
+------------------------------------------------------------ */
 
 .app-header {
   position: sticky;
@@ -75,28 +81,16 @@ body.app-body {
   border-bottom-color: var(--color-primary);
 }
 
-.app-nav-right {
-  display: flex;
-  align-items: baseline;
-  gap: 0.25rem;
-  font-size: 0.9rem;
-}
-
-.app-nav-provisioner-label {
-  color: var(--color-muted);
-}
-
-.app-nav-provisioner-value {
-  font-weight: 600;
-}
-
-.app-main {
+.app-main,
+.main {
   max-width: 1200px;
   margin: 1.5rem auto 2rem;
   padding: 0 1.5rem;
 }
 
-/* Page */
+/* ------------------------------------------------------------
+   PAGE WRAPPER
+------------------------------------------------------------ */
 
 .page {
   display: flex;
@@ -104,7 +98,9 @@ body.app-body {
   gap: 1.5rem;
 }
 
-/* Cards */
+/* ------------------------------------------------------------
+   CARDS
+------------------------------------------------------------ */
 
 .cards-row {
   display: grid;
@@ -148,7 +144,9 @@ body.app-body {
   color: var(--color-info);
 }
 
-/* Grid */
+/* ------------------------------------------------------------
+   GRID LAYOUTS
+------------------------------------------------------------ */
 
 .grid-two-columns {
   display: grid;
@@ -156,7 +154,9 @@ body.app-body {
   gap: 1rem;
 }
 
-/* Tables */
+/* ------------------------------------------------------------
+   TABLES
+------------------------------------------------------------ */
 
 .card-table {
   padding: 0;
@@ -199,7 +199,9 @@ body.app-body {
   color: var(--color-muted);
 }
 
-/* Badges */
+/* ------------------------------------------------------------
+   BADGES
+------------------------------------------------------------ */
 
 .badge {
   display: inline-flex;
@@ -220,7 +222,21 @@ body.app-body {
   color: #b91c1c;
 }
 
-/* Responsive */
+/* ------------------------------------------------------------
+   INPUT UTILITY (for <select> etc.)
+------------------------------------------------------------ */
+
+.input {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 0.45rem 0.6rem;
+  font-size: 0.9rem;
+  background-color: var(--color-surface);
+}
+
+/* ------------------------------------------------------------
+   RESPONSIVE
+------------------------------------------------------------ */
 
 @media (max-width: 900px) {
   .cards-row {
