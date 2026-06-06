@@ -12,7 +12,7 @@ RUN go mod download
 COPY . .
 
 # adjust the build target path if your main package is elsewhere (e.g., ./cmd/server)
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/step-ui-backend ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o /out/step-ui-backend ./cmd
 
 # final stage
 FROM alpine:3.18
