@@ -1,66 +1,58 @@
-'use client'
+'use client';
 
-import { useEffect, useState } from 'react'
-import { apiClient, AuditEvent } from '@/src/lib/api'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog'
-import { Label } from '@/components/ui/label'
-import { toast } from "@/components/ui/use-toast"
-import { Skeleton } from "@/src/lib/skeleton"
+import { useEffect, useState } from 'react';
+import { apiClient } from '@/lib/api';
+import { AuditEvent } from '@/lib/types';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Dialog, DialogHeader, DialogFooter } from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Skeleton } from '@/lib/skeleton';
 
 // ------------------------------------------------------------
 // PAGE
 // ------------------------------------------------------------
 
 export default function AuditLogPage() {
-  const [events, setEvents] = useState<AuditEvent[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Filters
-  const [from, setFrom] = useState('')
-  const [to, setTo] = useState('')
-  const [action, setAction] = useState('')
-  const [user, setUser] = useState('')
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const [action, setAction] = useState('');
+  const [user, setUser] = useState('');
 
   // Detail dialog
-  const [detailOpen, setDetailOpen] = useState(false)
-  const [selected, setSelected] = useState<AuditEvent | null>(null)
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [selected, setSelected] = useState<AuditEvent | null>(null);
 
   async function load() {
     try {
-      setLoading(true)
+      setLoading(true);
       const res = await apiClient.getAuditLog({
         from: from || undefined,
         to: to || undefined,
         action: action || undefined,
         user: user || undefined,
-      })
-      setEvents(res.items)
-      setError(null)
+      });
+      setEvents(res.items);
+      setError(null);
     } catch (err) {
-      toast({
-        variant: "destructive",
-        title: "Failed to load audit log",
-      })
+      console.error('Failed to load audit log', err);
+      setError('Failed to load audit log');
     } finally {
-      setLoading(false)
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    load()
-  }, [])
+    load();
+  }, []);
 
-  if (loading) return <div className="p-6">Loading…</div>
-  if (error) return <div className="p-6 text-red-500">{error}</div>
+  if (loading) return <div className="p-6">Loading…</div>;
+  if (error) return <div className="p-6 text-red-500">{error}</div>;
 
   return (
     <div className="page page-audit-log space-y-6">
@@ -128,10 +120,9 @@ export default function AuditLogPage() {
                   <td>{ev.ip}</td>
                   <td>
                     <Button
-                      size="sm"
                       onClick={() => {
-                        setSelected(ev)
-                        setDetailOpen(true)
+                        setSelected(ev);
+                        setDetailOpen(true);
                       }}
                     >
                       View
@@ -151,25 +142,29 @@ export default function AuditLogPage() {
         onClose={() => setDetailOpen(false)}
       />
     </div>
-  )
+  );
 }
 
 // ------------------------------------------------------------
 // DETAIL DIALOG
 // ------------------------------------------------------------
 
-function AuditDetailDialog({ open, event, onClose }: {
-  open: boolean
-  event: AuditEvent | null
-  onClose: () => void
+function AuditDetailDialog({
+  open,
+  event,
+  onClose,
+}: {
+  open: boolean;
+  event: AuditEvent | null;
+  onClose: () => void;
 }) {
-  if (!event) return null
+  if (!event) return null;
 
   return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent className="max-w-lg">
+    <Dialog open={open} onClose={onClose}>
+      <div className="bg-white p-6 rounded shadow max-w-lg">
         <DialogHeader>
-          <DialogTitle>Audit Event Details</DialogTitle>
+          <h3 className="text-lg font-semibold">Audit Event Details</h3>
         </DialogHeader>
 
         <div className="space-y-2">
@@ -182,9 +177,9 @@ function AuditDetailDialog({ open, event, onClose }: {
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>Close</Button>
+          <Button onClick={onClose}>Close</Button>
         </DialogFooter>
-      </DialogContent>
+      </div>
     </Dialog>
-  )
+  );
 }
