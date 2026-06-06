@@ -1,23 +1,23 @@
-name: Go Modules Check
+name: Go Mod Tidy (manual)
 
+# Spouští se pouze ručně
 on:
-  push:
-    branches: [ main, master ]
-  pull_request:
-    branches: [ main, master ]
   workflow_dispatch:
 
 jobs:
-  tidy-and-verify:
+  tidy-and-commit:
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: backend
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          # allow pushing back using GITHUB_TOKEN
+          persist-credentials: true
 
       - name: Set up Go
         uses: actions/setup-go@v4
@@ -38,26 +38,52 @@ jobs:
       - name: Show Go version
         run: go version
 
-      - name: Ensure go env
-        run: |
-          go env
-          # Ensure module mode
-          export GO111MODULE=on
-
-      - name: Run go mod tidy
+      - name: Run go mod tidy and detect changes
         id: tidy
         run: |
-          # Run tidy and fail if it would change go.mod or go.sum
+          # ensure output variable exists
+          echo "changed=false" >> $GITHUB_OUTPUT
+
+          # run tidy
           go mod tidy
-          git --no-pager diff --exit-code go.mod go.sum || (echo "go.mod or go.sum would be modified by go mod tidy. Please run 'go mod tidy' locally and commit changes." && exit 1)
+
+          # if go.mod or go.sum changed, set output changed=true
+          if ! git --no-pager diff --exit-code -- go.mod go.sum; then
+            echo "go.mod or go.sum changed"
+            echo "changed=true" >> $GITHUB_OUTPUT
+            git --no-pager status --porcelain -- go.mod go.sum
+          else
+            echo "no changes to go.mod/go.sum"
+          fi
 
       - name: Run go mod verify
+        if: always()
         run: go mod verify
 
-      - name: Optional lint and tests
-        if: ${{ always() }}
+      - name: Commit and push go.mod/go.sum
+        if: steps.tidy.outputs.changed == 'true'
+        env:
+          GIT_AUTHOR_NAME: github-actions
+          GIT_AUTHOR_EMAIL: actions@github.com
         run: |
-          # Optional checks - uncomment or adjust as needed
-          # go vet ./...
-          # go test ./...
-          echo "Module tidy and verify completed"
+          git config user.name "${GIT_AUTHOR_NAME}"
+          git config user.email "${GIT_AUTHOR_EMAIL}"
+
+          # Stage and commit only go.mod and go.sum
+          git add go.mod go.sum
+
+          # If nothing to commit (race), exit gracefully
+          if git diff --cached --quiet; then
+            echo "Nothing to commit"
+            exit 0
+          fi
+
+          git commit -m "chore: go mod tidy (automated by workflow)"
+          # Push back to the same branch that triggered the workflow
+          # GITHUB_REF_NAME is available for workflow_dispatch
+          BRANCH="${{ github.ref_name }}"
+          if [ -z "$BRANCH" ]; then
+            # fallback to default branch if not set
+            BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+          fi
+          git push origin "HEAD:${BRANCH}"
