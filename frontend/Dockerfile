@@ -1,33 +1,31 @@
-# ------------------------------------------------------------
-# Stage 1 — Build the Next.js application
-# ------------------------------------------------------------
+# ============================
+# 1) Build stage
+# ============================
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-RUN apk add --no-cache libc6-compat
-
-COPY frontend/package.json frontend/package-lock.json ./
+COPY package.json package-lock.json ./
 RUN npm ci
 
-COPY frontend/ .
+COPY . .
+
 RUN npm run build
 
-# ------------------------------------------------------------
-# Stage 2 — Production runtime
-# ------------------------------------------------------------
+# ============================
+# 2) Runtime stage
+# ============================
 FROM node:20-alpine AS runner
 
 WORKDIR /app
+
 ENV NODE_ENV=production
+ENV PORT=3000
 
-# Copy standalone server
 COPY --from=builder /app/.next/standalone ./
-
-# Copy static assets
-COPY --from=builder /app/.next/static ./public/_next/static
-
-# No public/ copy — Next.js standalone does not need it
+COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/public ./public
 
 EXPOSE 3000
+
 CMD ["node", "server.js"]
