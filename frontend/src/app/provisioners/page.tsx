@@ -20,6 +20,7 @@ import {
   SelectItem,
 } from '@/components/ui/select'
 import { toast } from "@/components/ui/use-toast"
+import { Skeleton } from "@/src/lib/skeleton"
 
 // ------------------------------------------------------------
 // PAGE
