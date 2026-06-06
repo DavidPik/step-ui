@@ -2,12 +2,13 @@
 
 import { useEffect, useState } from 'react';
 import { apiClient } from '@/lib/api';
-import { Provisioner } from '@/lib/types';
+import { Provisioner, ProvisionerStatus } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogHeader, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/lib/skeleton';
+import { useActiveProvisioner } from '@/lib/activeProvisioner';
 
 // ------------------------------------------------------------
 // PAGE
@@ -15,29 +16,29 @@ import { Skeleton } from '@/lib/skeleton';
 
 export default function ProvisionersPage() {
   const [provisioners, setProvisioners] = useState<Provisioner[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [statuses, setStatuses] = useState<ProvisionerStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Dialog states
   const [createOpen, setCreateOpen] = useState(false);
-  const [selectOpen, setSelectOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   // Selected provisioner for dialogs
-  const [activeProvisioner, setActiveProvisioner] = useState<Provisioner | null>(null);
+  const [dialogProvisioner, setDialogProvisioner] = useState<Provisioner | null>(null);
+
+  const { activeProvisioner, setActiveProvisioner } = useActiveProvisioner();
 
   async function load() {
     try {
       setLoading(true);
-      const res = await apiClient.listProvisioners();
-      setProvisioners(res.items);
+      const [provRes, statusRes] = await Promise.all([
+        apiClient.listProvisioners(),
+        apiClient.getProvisionerStatuses(),
+      ]);
 
-      // Backend neposílá aktivní provisioner → držíme ho lokálně
-      if (!selected && res.items.length > 0) {
-        setSelected(res.items[0].name);
-      }
-
+      setProvisioners(provRes.items);
+      setStatuses(statusRes.items);
       setError(null);
     } catch (err) {
       console.error('Failed to load provisioners', err);
@@ -54,8 +55,8 @@ export default function ProvisionersPage() {
   if (loading) return <div className="p-6">Loading…</div>;
   if (error) return <div className="p-6 text-red-500">{error}</div>;
 
-  const selectedProvisioner =
-    provisioners.find((p) => p.name === selected) || null;
+  const currentProvisioner =
+    provisioners.find((p) => p.name === activeProvisioner) || null;
 
   return (
     <div className="page page-provisioners space-y-6">
@@ -73,60 +74,73 @@ export default function ProvisionersPage() {
               <tr>
                 <th>Name</th>
                 <th>Type</th>
+                <th>Status</th>
                 <th>Active</th>
                 <th>Actions</th>
               </tr>
             </thead>
 
             <tbody>
-              {provisioners.map((p) => (
-                <tr key={p.name}>
-                  <td>{p.name}</td>
-                  <td>{p.type}</td>
-                  <td>
-                    {selected === p.name ? (
-                      <span className="badge badge-ok">Active</span>
-                    ) : (
-                      <span className="badge badge-danger">Inactive</span>
-                    )}
-                  </td>
-                  <td className="space-x-2">
-                    <Button
-                      onClick={() => {
-                        setActiveProvisioner(p);
-                        setSelectOpen(true);
-                      }}
-                    >
-                      Select
-                    </Button>
+              {provisioners.map((p) => {
+                const status =
+                  statuses.find((s) => s.name === p.name)?.status ?? 'unknown';
+                const isActive = activeProvisioner === p.name;
 
-                    <Button
-                      onClick={() => {
-                        setActiveProvisioner(p);
-                        setDeleteOpen(true);
-                      }}
-                    >
-                      Delete
-                    </Button>
-                  </td>
-                </tr>
-              ))}
+                return (
+                  <tr key={p.name}>
+                    <td>{p.name}</td>
+                    <td>{p.type}</td>
+                    <td>
+                      <span className={`badge badge-${statusBadgeClass(status)}`}>
+                        {status}
+                      </span>
+                    </td>
+                    <td>
+                      {isActive ? (
+                        <span className="badge badge-ok">Active</span>
+                      ) : (
+                        <span className="badge badge-muted">Inactive</span>
+                      )}
+                    </td>
+                    <td className="space-x-2">
+                      <Button
+                        onClick={() => setActiveProvisioner(p.name)}
+                      >
+                        Use as active
+                      </Button>
+
+                      <Button
+                        onClick={() => {
+                          setDialogProvisioner(p);
+                          setDeleteOpen(true);
+                        }}
+                      >
+                        Delete
+                      </Button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
       </section>
 
       {/* DETAILS */}
-      {selectedProvisioner && (
+      {currentProvisioner && (
         <section className="card">
           <div className="card-header">
-            <h2 className="card-header-title">Provisioner Details</h2>
+            <h2 className="card-header-title">Active Provisioner Details</h2>
           </div>
 
           <div className="card-body space-y-2">
-            <div><strong>Name:</strong> {selectedProvisioner.name}</div>
-            <div><strong>Type:</strong> {selectedProvisioner.type}</div>
-            <div><strong>Status:</strong> Active</div>
+            <div><strong>Name:</strong> {currentProvisioner.name}</div>
+            <div><strong>Type:</strong> {currentProvisioner.type}</div>
+            <div>
+              <strong>Status:</strong>{' '}
+              {statuses.find((s) => s.name === currentProvisioner.name)?.status ??
+                'unknown'}
+            </div>
           </div>
         </section>
       )}
@@ -138,16 +152,9 @@ export default function ProvisionersPage() {
         onCreated={load}
       />
 
-      <SelectProvisionerDialog
-        open={selectOpen}
-        provisioner={activeProvisioner}
-        onClose={() => setSelectOpen(false)}
-        onSelected={load}
-      />
-
       <DeleteProvisionerDialog
         open={deleteOpen}
-        provisioner={activeProvisioner}
+        provisioner={dialogProvisioner}
         onClose={() => setDeleteOpen(false)}
         onDeleted={load}
       />
@@ -176,10 +183,13 @@ function CreateProvisionerDialog({
   async function handleCreate() {
     setLoading(true);
     try {
+      // For JWK provisioner we send jwk equal to secret (minimal support).
       await apiClient.createProvisioner({
         name,
         type,
         secret: type === "JWK" ? secret : undefined,
+        jwk: type === "JWK" ? secret : undefined,
+        acme_directories: type === "ACME" ? [] : [],
       });
       onCreated();
       onClose();
@@ -231,73 +241,6 @@ function CreateProvisionerDialog({
           <Button onClick={onClose}>Cancel</Button>
           <Button onClick={handleCreate} disabled={loading}>
             {loading ? "Creating…" : "Create"}
-          </Button>
-        </DialogFooter>
-      </div>
-    </Dialog>
-  );
-}
-
-// ------------------------------------------------------------
-// SELECT PROVISIONER DIALOG
-// ------------------------------------------------------------
-
-function SelectProvisionerDialog({
-  open,
-  provisioner,
-  onClose,
-  onSelected,
-}: {
-  open: boolean;
-  provisioner: Provisioner | null;
-  onClose: () => void;
-  onSelected: () => void;
-}) {
-  const [secret, setSecret] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function handleSelect() {
-    if (!provisioner) return;
-    setLoading(true);
-    try {
-      await apiClient.selectProvisioner(provisioner.name, secret);
-      onSelected();
-      onClose();
-    } catch (err) {
-      console.error("Failed to select provisioner", err);
-    } finally {
-      setLoading(false);
-      setSecret("");
-    }
-  }
-
-  return (
-    <Dialog open={open} onClose={onClose}>
-      <div className="bg-white p-6 rounded shadow max-w-lg">
-        <DialogHeader>
-          <h3 className="text-lg font-semibold">Select Provisioner</h3>
-        </DialogHeader>
-
-        <div className="space-y-4">
-          <div>
-            <Label>Provisioner</Label>
-            <Input value={provisioner?.name || ""} disabled />
-          </div>
-
-          <div>
-            <Label>Secret</Label>
-            <Input
-              type="password"
-              value={secret}
-              onChange={(e) => setSecret(e.target.value)}
-            />
-          </div>
-        </div>
-
-        <DialogFooter>
-          <Button onClick={onClose}>Cancel</Button>
-          <Button onClick={handleSelect} disabled={loading}>
-            {loading ? "Selecting…" : "Select"}
           </Button>
         </DialogFooter>
       </div>
@@ -371,4 +314,21 @@ function DeleteProvisionerDialog({
       </div>
     </Dialog>
   );
+}
+
+// ------------------------------------------------------------
+// HELPERS
+// ------------------------------------------------------------
+
+function statusBadgeClass(status: string) {
+  switch (status) {
+    case 'online':
+      return 'ok';
+    case 'offline':
+      return 'danger';
+    case 'error':
+      return 'warning';
+    default:
+      return 'muted';
+  }
 }
