@@ -1,21 +1,31 @@
-// ---------------------------------------------------------
+//
 // Provisioners
-// ---------------------------------------------------------
+//
 
 export interface Provisioner {
   name: string;
   type: string;
-  acme_directories?: string[];
+  jwk?: string;
+  acme_directories: string[];
 }
 
-// ---------------------------------------------------------
+export interface ProvisionerStatus {
+  name: string;
+  status: "online" | "offline" | "error" | "unknown";
+}
+
+export interface ProvisionerStatusList {
+  items: ProvisionerStatus[];
+}
+
+//
 // Certificates
-// ---------------------------------------------------------
+//
 
 export interface CertificateItem {
   id: string;
   common_name: string;
-  dns_names: string[];
+  dns_names: string; // CSV string from backend
   serial: string;
   not_before: string;
   not_after: string;
@@ -24,38 +34,35 @@ export interface CertificateItem {
 export interface CertificateDetail {
   id: string;
   common_name: string;
-  dns_names: string[];
+  dns_names: string; // CSV string
   serial: string;
   not_before: string;
   not_after: string;
   certificate_pem: string;
+  private_key_pem: string;
   ca_chain_pem: string;
 }
 
 export interface IssueCertificateRequest {
   common_name: string;
   dns_names: string[];
-  not_after_days?: number;
 }
 
 export interface IssueCertificateResponse {
+  status: string;
   id: string;
-  serial: string;
   common_name: string;
+  serial: string;
   not_before: string;
   not_after: string;
-  certificate_pem: string;
-  ca_chain_pem: string;
+  certificate: string;
+  private_key: string;
+  ca_bundle: string;
 }
 
-export interface RevokeRequest {
-  serial: string;
-  secret?: string;
-}
-
-// ---------------------------------------------------------
+//
 // Audit log
-// ---------------------------------------------------------
+//
 
 export interface AuditEvent {
   id: string;
@@ -66,9 +73,9 @@ export interface AuditEvent {
   ip: string;
 }
 
-// ---------------------------------------------------------
+//
 // Generic list wrapper
-// ---------------------------------------------------------
+//
 
 export interface ListResponse<T> {
   items: T[];
