@@ -8,11 +8,6 @@ import { Dialog, DialogHeader, DialogFooter } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { downloadFile } from '@/lib/utils';
-import { Skeleton } from '@/lib/skeleton';
-
-// ------------------------------------------------------------
-// PAGE
-// ------------------------------------------------------------
 
 export default function CertificatesPage() {
   const [certs, setCerts] = useState<CertificateItem[]>([]);
@@ -22,7 +17,6 @@ export default function CertificatesPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'All' | 'Active' | 'Expired'>('All');
 
-  // Dialog states
   const [issueOpen, setIssueOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [revokeOpen, setRevokeOpen] = useState(false);
@@ -71,12 +65,10 @@ export default function CertificatesPage() {
       <section className="card">
         <div className="card-body flex flex-wrap justify-between gap-4">
 
-          {/* ACTION BUTTONS */}
           <div className="flex gap-2">
             <Button onClick={() => setIssueOpen(true)}>Issue Certificate</Button>
           </div>
 
-          {/* FILTERS */}
           <div className="flex gap-2 items-center flex-wrap">
             <label>Status:</label>
             <select
@@ -94,12 +86,6 @@ export default function CertificatesPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
             />
-
-            <select className="input">
-              <option>Show 10</option>
-              <option>Show 25</option>
-              <option>Show 50</option>
-            </select>
           </div>
         </div>
       </section>
@@ -142,12 +128,9 @@ export default function CertificatesPage() {
                     <td>{new Date(c.not_after).toLocaleDateString()}</td>
                     <td>
                       <Button
-                        onClick={() => {
-                          setSelectedCert({
-                            ...c,
-                            certificate_pem: "",
-                            ca_bundle_pem: ""
-                          });
+                        onClick={async () => {
+                          const detail = await apiClient.getCertificate(c.id);
+                          setSelectedCert(detail);
                           setDetailOpen(true);
                         }}
                       >
@@ -162,7 +145,6 @@ export default function CertificatesPage() {
         </div>
       </section>
 
-      {/* DIALOGS */}
       <IssueCertificateDialog
         open={issueOpen}
         onClose={() => setIssueOpen(false)}
@@ -300,7 +282,7 @@ function CertificateDetailDialog({
               <Button
                 onClick={() =>
                   downloadFile(
-                    cert.ca_bundle_pem,
+                    cert.ca_chain_pem,
                     `${cert.common_name}-chain.crt`,
                     "application/x-pem-file"
                   )
