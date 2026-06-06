@@ -1,11 +1,13 @@
-name: Go Mod Tidy (manual)
+name: Go Mod Tidy and Verify (manual, push with PAT)
 
-# Spouští se pouze ručně
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
-  tidy-and-commit:
+  tidy-and-push:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -16,9 +18,17 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          # allow pushing back using GITHUB_TOKEN
-          persist-credentials: true
+          persist-credentials: false
 
+      - name: Ensure PAT is available
+        id: check_pat
+        run: |
+          if [ -z "${{ secrets.PAT_FOR_AUTOCOMMIT }}" ]; then
+            echo "ERROR: secret PAT_FOR_AUTOCOMMIT is not set. Please add a Personal Access Token with repo write permissions to repository secrets."
+            exit 1
+          fi
+          echo "PAT present"
+      
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
@@ -41,49 +51,50 @@ jobs:
       - name: Run go mod tidy and detect changes
         id: tidy
         run: |
-          # ensure output variable exists
-          echo "changed=false" >> $GITHUB_OUTPUT
-
+          set -euo pipefail
           # run tidy
           go mod tidy
 
-          # if go.mod or go.sum changed, set output changed=true
+          # detect changes to go.mod/go.sum
           if ! git --no-pager diff --exit-code -- go.mod go.sum; then
-            echo "go.mod or go.sum changed"
             echo "changed=true" >> $GITHUB_OUTPUT
             git --no-pager status --porcelain -- go.mod go.sum
           else
-            echo "no changes to go.mod/go.sum"
+            echo "changed=false" >> $GITHUB_OUTPUT
           fi
 
       - name: Run go mod verify
         if: always()
         run: go mod verify
 
-      - name: Commit and push go.mod/go.sum
+      - name: Commit and push go.mod/go.sum using PAT
         if: steps.tidy.outputs.changed == 'true'
         env:
+          PAT: ${{ secrets.PAT_FOR_AUTOCOMMIT }}
           GIT_AUTHOR_NAME: github-actions
           GIT_AUTHOR_EMAIL: actions@github.com
         run: |
+          set -euo pipefail
+
+          # Configure git author
           git config user.name "${GIT_AUTHOR_NAME}"
           git config user.email "${GIT_AUTHOR_EMAIL}"
 
-          # Stage and commit only go.mod and go.sum
+          # Stage changes
           git add go.mod go.sum
 
-          # If nothing to commit (race), exit gracefully
+          # If nothing to commit, exit
           if git diff --cached --quiet; then
             echo "Nothing to commit"
             exit 0
           fi
 
+          # Commit
           git commit -m "chore: go mod tidy (automated by workflow)"
-          # Push back to the same branch that triggered the workflow
-          # GITHUB_REF_NAME is available for workflow_dispatch
-          BRANCH="${{ github.ref_name }}"
-          if [ -z "$BRANCH" ]; then
-            # fallback to default branch if not set
-            BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-          fi
-          git push origin "HEAD:${BRANCH}"
+
+          # Determine repository and branch to push to
+          REPO="${{ github.repository }}"   # e.g. owner/repo
+          # Determine current branch checked out by actions/checkout (default branch)
+          BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+          if [ -z "$BRANCH" ] || [ "$BRANCH" = "HEAD" ]; then
+            # fallback
