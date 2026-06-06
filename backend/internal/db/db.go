@@ -4,246 +4,143 @@ import (
     "context"
     "database/sql"
     "errors"
-    "fmt"
-    "strings"
     "time"
 
-    "github.com/jmoiron/sqlx"
-    _ "github.com/go-sql-driver/mysql"
+    _ "github.com/mattn/go-sqlite3"
 )
 
-// DB wraps sqlx.DB and provides helper methods.
-type DB struct {
-    conn *sqlx.DB
+type Database struct {
+    conn *sql.DB
 }
 
-// Default connection pool settings (approved)
-const (
-    defaultMaxOpenConns    = 25
-    defaultMaxIdleConns    = 5
-    defaultConnMaxLifetime = 5 * time.Minute
-)
-
-// InitDB opens connection to MySQL using DSN and ensures schema exists.
-// DSN example: user:password@tcp(host:3306)/dbname?parseTime=true&loc=UTC
-func InitDB(ctx context.Context, dsn string) (*DB, error) {
-    if dsn == "" {
-        return nil, errors.New("dsn is required")
-    }
-
-    // Ensure parseTime and loc=UTC are present for proper time parsing
-    if !strings.Contains(dsn, "parseTime=") {
-        if strings.Contains(dsn, "?") {
-            dsn += "&parseTime=true"
-        } else {
-            dsn += "?parseTime=true"
-        }
-    }
-    if !strings.Contains(dsn, "loc=") {
-        dsn += "&loc=UTC"
-    }
-
-    dbx, err := sqlx.Open("mysql", dsn)
+func InitDB(ctx context.Context, dsn string) (*Database, error) {
+    db, err := sql.Open("sqlite3", dsn)
     if err != nil {
-        return nil, fmt.Errorf("sqlx.Open: %w", err)
-    }
-
-    // Set connection pool defaults
-    dbx.SetMaxOpenConns(defaultMaxOpenConns)
-    dbx.SetMaxIdleConns(defaultMaxIdleConns)
-    dbx.SetConnMaxLifetime(defaultConnMaxLifetime)
-
-    // Ping to verify connection (no retries by design)
-    ctxPing, cancel := context.WithTimeout(ctx, 5*time.Second)
-    defer cancel()
-    if err := dbx.PingContext(ctxPing); err != nil {
-        _ = dbx.Close()
-        return nil, fmt.Errorf("db ping: %w", err)
-    }
-
-    d := &DB{conn: dbx}
-
-    // Ensure schema exists (create tables if DB is empty)
-    if err := d.ensureSchema(ctx); err != nil {
-        _ = dbx.Close()
-        return nil, fmt.Errorf("ensureSchema: %w", err)
-    }
-
-    return d, nil
-}
-
-// Close closes the underlying DB connection.
-func (d *DB) Close() error {
-    if d == nil || d.conn == nil {
-        return nil
-    }
-    return d.conn.Close()
-}
-
-// ensureSchema checks for presence of required tables and creates them if missing.
-// It will also insert initial CA settings row if none exists.
-func (d *DB) ensureSchema(ctx context.Context) error {
-    // We'll check for one known table; if missing, create all tables.
-    const checkTable = "audit_events"
-
-    var exists bool
-    query := "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?"
-    var cnt int
-    if err := d.conn.GetContext(ctx, &cnt, query, checkTable); err != nil {
-        return fmt.Errorf("schema check query: %w", err)
-    }
-    exists = cnt > 0
-    if exists {
-        return nil
-    }
-
-    // Create tables
-    tx, err := d.conn.BeginTxx(ctx, &sql.TxOptions{})
-    if err != nil {
-        return fmt.Errorf("begin tx: %w", err)
-    }
-    defer func() {
-        // If still active and not committed, rollback
-        _ = tx.Rollback()
-    }()
-
-    // Use InnoDB, utf8mb4
-    stmts := []string{
-        // CA settings (single row)
-        `CREATE TABLE IF NOT EXISTS ca_settings (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            ca_url TEXT,
-            root_fingerprint TEXT,
-            provisioner_name VARCHAR(255),
-            acme_directories TEXT,
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
-
-        // Provisioners
-        `CREATE TABLE IF NOT EXISTS provisioners (
-            name VARCHAR(255) PRIMARY KEY,
-            type VARCHAR(50) NOT NULL,
-            acme_directories TEXT,
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
-
-        // Certificates
-        `CREATE TABLE IF NOT EXISTS certificates (
-            id VARCHAR(128) PRIMARY KEY,
-            common_name VARCHAR(1024) NOT NULL,
-            dns_names TEXT,
-            serial VARCHAR(255) NOT NULL,
-            not_before TIMESTAMP NOT NULL,
-            not_after TIMESTAMP NOT NULL,
-            certificate_pem MEDIUMTEXT,
-            ca_chain_pem MEDIUMTEXT,
-            status VARCHAR(50) NOT NULL DEFAULT 'active',
-            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            revoked_at TIMESTAMP NULL,
-            INDEX idx_cert_serial (serial),
-            INDEX idx_cert_common_name (common_name)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
-
-        // Audit events
-        `CREATE TABLE IF NOT EXISTS audit_events (
-            id BIGINT AUTO_INCREMENT PRIMARY KEY,
-            timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            action VARCHAR(255) NOT NULL,
-            user VARCHAR(255),
-            details TEXT,
-            ip VARCHAR(100)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;`,
-    }
-
-    for _, s := range stmts {
-        if _, err := tx.ExecContext(ctx, s); err != nil {
-            return fmt.Errorf("create table exec: %w", err)
-        }
-    }
-
-    // Insert initial CA settings row if none exists
-    var settingsCount int
-    if err := tx.GetContext(ctx, &settingsCount, "SELECT COUNT(*) FROM ca_settings"); err != nil {
-        return fmt.Errorf("count ca_settings: %w", err)
-    }
-    if settingsCount == 0 {
-        _, err := tx.ExecContext(ctx, `INSERT INTO ca_settings (ca_url, root_fingerprint, provisioner_name, acme_directories) VALUES (?, ?, ?, ?)`,
-            "", "", "", "[]")
-        if err != nil {
-            return fmt.Errorf("insert initial ca_settings: %w", err)
-        }
-    }
-
-    if err := tx.Commit(); err != nil {
-        return fmt.Errorf("commit schema tx: %w", err)
-    }
-
-    return nil
-}
-
-// -----------------------------
-// CA Settings
-// -----------------------------
-
-// GetCASettings returns the single CA settings row.
-func (d *DB) GetCASettings(ctx context.Context) (*CASettings, error) {
-    var s CASettings
-    err := d.conn.GetContext(ctx, &s, "SELECT * FROM ca_settings LIMIT 1")
-    if err != nil {
-        if errors.Is(err, sql.ErrNoRows) {
-            return nil, nil
-        }
         return nil, err
     }
-    return &s, nil
+
+    schema := `
+CREATE TABLE IF NOT EXISTS provisioners (
+    name TEXT PRIMARY KEY,
+    type TEXT NOT NULL,
+    jwk TEXT,
+    acme_directories TEXT NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS certificates (
+    id TEXT PRIMARY KEY,
+    common_name TEXT NOT NULL,
+    dns_names TEXT NOT NULL,
+    serial TEXT NOT NULL,
+    not_before TIMESTAMP NOT NULL,
+    not_after TIMESTAMP NOT NULL,
+    certificate_pem TEXT,
+    ca_chain_pem TEXT,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    action TEXT NOT NULL,
+    user TEXT NOT NULL,
+    details TEXT,
+    ip TEXT
+);
+`
+    _, err = db.ExecContext(ctx, schema)
+    if err != nil {
+        return nil, err
+    }
+
+    return &Database{conn: db}, nil
 }
 
-// UpdateCASettings updates the CA settings row (by id).
-func (d *DB) UpdateCASettings(ctx context.Context, s *CASettings) error {
-    if s == nil {
-        return errors.New("nil settings")
-    }
-    _, err := d.conn.ExecContext(ctx, `UPDATE ca_settings SET ca_url = ?, root_fingerprint = ?, provisioner_name = ?, acme_directories = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-        s.CAURL, s.RootFingerprint, s.ProvisionerName, s.ACMEDirectories, s.ID)
-    return err
+func (db *Database) Close() error {
+    return db.conn.Close()
 }
 
 // -----------------------------
 // Provisioners
 // -----------------------------
 
-func (d *DB) ListProvisioners(ctx context.Context) ([]Provisioner, error) {
-    var out []Provisioner
-    if err := d.conn.SelectContext(ctx, &out, "SELECT name, type, acme_directories, created_at FROM provisioners ORDER BY name"); err != nil {
+func (db *Database) ListProvisioners() ([]Provisioner, error) {
+    rows, err := db.conn.Query(`
+        SELECT name, type, jwk, acme_directories, created_at
+        FROM provisioners
+        ORDER BY name ASC
+    `)
+    if err != nil {
         return nil, err
     }
+    defer rows.Close()
+
+    var out []Provisioner
+
+    for rows.Next() {
+        var p Provisioner
+        var dirsJSON string
+
+        if err := rows.Scan(&p.Name, &p.Type, &p.JWK, &dirsJSON, &p.CreatedAt); err != nil {
+            return nil, err
+        }
+
+        dirs, err := JSONToStringArray(dirsJSON)
+        if err != nil {
+            return nil, err
+        }
+        p.ACMEDirectories = dirs
+
+        out = append(out, p)
+    }
+
     return out, nil
 }
 
-func (d *DB) GetProvisioner(ctx context.Context, name string) (*Provisioner, error) {
+func (db *Database) GetProvisionerByName(name string) (*Provisioner, error) {
+    row := db.conn.QueryRow(`
+        SELECT name, type, jwk, acme_directories, created_at
+        FROM provisioners
+        WHERE name = ?
+    `, name)
+
     var p Provisioner
-    if err := d.conn.GetContext(ctx, &p, "SELECT name, type, acme_directories, created_at FROM provisioners WHERE name = ? LIMIT 1", name); err != nil {
-        if errors.Is(err, sql.ErrNoRows) {
-            return nil, nil
-        }
+    var dirsJSON string
+
+    err := row.Scan(&p.Name, &p.Type, &p.JWK, &dirsJSON, &p.CreatedAt)
+    if err == sql.ErrNoRows {
+        return nil, nil
+    }
+    if err != nil {
         return nil, err
     }
+
+    dirs, err := JSONToStringArray(dirsJSON)
+    if err != nil {
+        return nil, err
+    }
+    p.ACMEDirectories = dirs
+
     return &p, nil
 }
 
-func (d *DB) CreateProvisioner(ctx context.Context, p *Provisioner) error {
-    if p == nil {
-        return errors.New("nil provisioner")
+func (db *Database) CreateProvisioner(p *Provisioner) error {
+    dirsJSON, err := StringArrayToJSON(p.ACMEDirectories)
+    if err != nil {
+        return err
     }
-    _, err := d.conn.ExecContext(ctx, `INSERT INTO provisioners (name, type, acme_directories) VALUES (?, ?, ?)`,
-        p.Name, p.Type, p.ACMEDirectories)
+
+    _, err = db.conn.Exec(`
+        INSERT INTO provisioners (name, type, jwk, acme_directories)
+        VALUES (?, ?, ?, ?)
+    `, p.Name, p.Type, p.JWK, dirsJSON)
+
     return err
 }
 
-func (d *DB) DeleteProvisioner(ctx context.Context, name string) error {
-    // Physical delete as requested. Audit should be logged by caller via LogAudit.
-    _, err := d.conn.ExecContext(ctx, `DELETE FROM provisioners WHERE name = ?`, name)
+func (db *Database) DeleteProvisioner(name string) error {
+    _, err := db.conn.Exec(`DELETE FROM provisioners WHERE name = ?`, name)
     return err
 }
 
@@ -251,54 +148,85 @@ func (d *DB) DeleteProvisioner(ctx context.Context, name string) error {
 // Certificates
 // -----------------------------
 
-func (d *DB) ListCertificates(ctx context.Context) ([]Certificate, error) {
-    var out []Certificate
-    if err := d.conn.SelectContext(ctx, &out, "SELECT id, common_name, dns_names, serial, not_before, not_after, certificate_pem, ca_chain_pem, status, created_at, revoked_at FROM certificates ORDER BY created_at DESC"); err != nil {
+func (db *Database) ListCertificates() ([]Certificate, error) {
+    rows, err := db.conn.Query(`
+        SELECT id, common_name, dns_names, serial, not_before, not_after,
+               certificate_pem, ca_chain_pem, created_at
+        FROM certificates
+        ORDER BY created_at DESC
+    `)
+    if err != nil {
         return nil, err
     }
+    defer rows.Close()
+
+    var out []Certificate
+
+    for rows.Next() {
+        var c Certificate
+        if err := rows.Scan(
+            &c.ID, &c.CommonName, &c.DNSNames, &c.Serial,
+            &c.NotBefore, &c.NotAfter,
+            &c.CertificatePEM, &c.CAChainPEM,
+            &c.CreatedAt,
+        ); err != nil {
+            return nil, err
+        }
+        out = append(out, c)
+    }
+
     return out, nil
 }
 
-func (d *DB) GetCertificate(ctx context.Context, id string) (*Certificate, error) {
+func (db *Database) GetCertificateByID(id string) (*Certificate, error) {
+    row := db.conn.QueryRow(`
+        SELECT id, common_name, dns_names, serial, not_before, not_after,
+               certificate_pem, ca_chain_pem, created_at
+        FROM certificates
+        WHERE id = ?
+    `, id)
+
     var c Certificate
-    if err := d.conn.GetContext(ctx, &c, "SELECT id, common_name, dns_names, serial, not_before, not_after, certificate_pem, ca_chain_pem, status, created_at, revoked_at FROM certificates WHERE id = ? LIMIT 1", id); err != nil {
-        if errors.Is(err, sql.ErrNoRows) {
-            return nil, nil
-        }
+
+    err := row.Scan(
+        &c.ID, &c.CommonName, &c.DNSNames, &c.Serial,
+        &c.NotBefore, &c.NotAfter,
+        &c.CertificatePEM, &c.CAChainPEM,
+        &c.CreatedAt,
+    )
+    if err == sql.ErrNoRows {
+        return nil, nil
+    }
+    if err != nil {
         return nil, err
     }
+
     return &c, nil
 }
 
-// CreateCertificate inserts a certificate record. Note: private key must NOT be stored.
-func (d *DB) CreateCertificate(ctx context.Context, c *Certificate) error {
-    if c == nil {
-        return errors.New("nil certificate")
+func (db *Database) CreateCertificate(c *Certificate) (string, error) {
+    _, err := db.conn.Exec(`
+        INSERT INTO certificates (id, common_name, dns_names, serial, not_before, not_after,
+                                  certificate_pem, ca_chain_pem)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, c.ID, c.CommonName, c.DNSNames, c.Serial, c.NotBefore, c.NotAfter,
+        c.CertificatePEM, c.CAChainPEM)
+
+    if err != nil {
+        return "", err
     }
-    _, err := d.conn.ExecContext(ctx, `INSERT INTO certificates (id, common_name, dns_names, serial, not_before, not_after, certificate_pem, ca_chain_pem, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        c.ID, c.CommonName, c.DNSNames, c.Serial, c.NotBefore.UTC(), c.NotAfter.UTC(), c.CertificatePEM, c.CAChainPEM, c.Status)
-    return err
-}
 
-// RevokeCertificate marks certificate as revoked and sets revoked_at timestamp.
-func (d *DB) RevokeCertificate(ctx context.Context, serial string) error {
-    _, err := d.conn.ExecContext(ctx, `UPDATE certificates SET status = 'revoked', revoked_at = CURRENT_TIMESTAMP WHERE serial = ?`, serial)
-    return err
-}
-
-// DeleteCertificate physically deletes a certificate by id.
-func (d *DB) DeleteCertificate(ctx context.Context, id string) error {
-    _, err := d.conn.ExecContext(ctx, `DELETE FROM certificates WHERE id = ?`, id)
-    return err
+    return c.ID, nil
 }
 
 // -----------------------------
-// Audit logging
+// Audit log
 // -----------------------------
 
-// LogAudit inserts an audit event. This helper should be used by handlers to record actions.
-func (d *DB) LogAudit(ctx context.Context, action, user, details, ip string) error {
-    _, err := d.conn.ExecContext(ctx, `INSERT INTO audit_events (action, user, details, ip) VALUES (?, ?, ?, ?)`,
-        action, user, details, ip)
+func (db *Database) LogAuditEvent(e *AuditEvent) error {
+    _, err := db.conn.Exec(`
+        INSERT INTO audit_events (action, user, details, ip)
+        VALUES (?, ?, ?, ?)
+    `, e.Action, e.User, e.Details, e.IP)
     return err
 }
