@@ -1,7 +1,7 @@
 # Step-CA Web UI
 
-This project is work in progress, not ready to compile and build, yet.
-My goal is to refactor project to use mysql database and make frontend UI complete.
+## This project is work in progress, not ready to compile and build, yet.
+## My goal is to refactor project to use mysql database and make frontend UI complete.
 
 A modern web interface for managing certificates with Smallstep Step-CA.
 
