@@ -37,62 +37,11 @@ const (
 // -----------------------------
 
 // APIError represents an error returned by step-ca in JSON form.
-type APIError struct {
-    Code    int    `json:"code,omitempty"`
-    Message string `json:"message,omitempty"`
-}
-
 func (e *APIError) Error() string {
     if e.Message != "" {
         return e.Message
     }
     return fmt.Sprintf("step api error: code=%d", e.Code)
-}
-
-// Provisioner represents a provisioner object returned by step-ca.
-type Provisioner struct {
-    Name           string   `json:"name"`
-    Type           string   `json:"type"`
-    JWK            string   `json:"jwk,omitempty"`
-    ACMEDirectories []string `json:"acme_directories,omitempty"`
-}
-
-// IssueCertificateRequest is the minimal request shape used by the backend.
-type IssueCertificateRequest struct {
-    CommonName   string   `json:"common_name,omitempty"`
-    DNSNames     []string `json:"dns_names,omitempty"`
-    NotAfterDays int      `json:"not_after_days,omitempty"`
-    CSRPEM       string   `json:"csr,omitempty"` // optional: if provided, CA will sign CSR
-}
-
-// IssueCertificateResponse is the minimal response shape we expect from step-ca /sign.
-type IssueCertificateResponse struct {
-    ID             string `json:"id,omitempty"`
-    CommonName     string `json:"common_name,omitempty"`
-    Serial         string `json:"serial,omitempty"`
-    CertificatePEM string `json:"crt,omitempty"`
-    KeyPEM         string `json:"key,omitempty"`
-    CABundlePEM    string `json:"chain,omitempty"`
-    NotBefore      string `json:"not_before,omitempty"`
-    NotAfter       string `json:"not_after,omitempty"`
-}
-
-// SignCSRRequest / SignCSRResponse (kept for completeness)
-type SignCSRRequest struct {
-    CSRPEM      string `json:"csr"`
-    NotAfterDays int   `json:"not_after_days,omitempty"`
-}
-type SignCSRResponse struct {
-    CertificatePEM string `json:"crt,omitempty"`
-    Serial         string `json:"serial,omitempty"`
-    NotBefore      string `json:"not_before,omitempty"`
-    NotAfter       string `json:"not_after,omitempty"`
-}
-
-// RevokeResponse minimal shape
-type RevokeResponse struct {
-    Serial string `json:"serial,omitempty"`
-    Status string `json:"status,omitempty"`
 }
 
 // -----------------------------
