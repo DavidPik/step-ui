@@ -7,7 +7,7 @@ require (
 	github.com/go-jose/go-jose/v3 v3.0.5
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.0
-	github.com/mattn/go-sqlite3 v1.14.45
+	github.com/go-sql-driver/mysql 1.10.0
 )
 
 require (
