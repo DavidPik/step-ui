@@ -30,9 +30,9 @@ type ProvisionerStatus struct {
 }
 
 type CASettings struct {
-    ProvisionerName  string   `json:"provisioner_name,omitempty"`
-    ACMEDirectories  []string `json:"acme_directories,omitempty"`
-    UpdatedAt        time.Time `json:"updated_at,omitempty"`
+    ProvisionerName  string   `json:"provisioner_name"`
+    ACMEDirectories  []string `json:"acme_directories"`
+    UpdatedAt        time.Time `json:"updated_at"`
 }
 
 // Certificate represents a certificate record.
