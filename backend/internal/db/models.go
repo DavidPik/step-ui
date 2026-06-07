@@ -6,6 +6,10 @@ import (
     "time"
 )
 
+type Database struct {
+    conn *sql.DB
+}
+
 // -----------------------------
 // Data models
 // -----------------------------
@@ -18,6 +22,17 @@ type Provisioner struct {
     JWK              string    `db:"jwk"`
     ACMEDirectories  []string  `db:"acme_directories"` // JSON array stored as text
     CreatedAt        time.Time `db:"created_at"`
+}
+
+type ProvisionerStatus struct {
+    Name   string `json:"name"`
+    Status string `json:"status"`
+}
+
+type CASettings struct {
+    ProvisionerName  string   `json:"provisioner_name,omitempty"`
+    ACMEDirectories  []string `json:"acme_directories,omitempty"`
+    UpdatedAt        time.Time `json:"updated_at,omitempty"`
 }
 
 // Certificate represents a certificate record.
