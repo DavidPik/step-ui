@@ -294,20 +294,22 @@ func main() {
             httpError(w, http.StatusBadGateway, "failed to issue certificate")
             return
         }
+
         // Persist certificate metadata (do not store private key)
         c := &db.Certificate{
             ID:             resp.ID,
             CommonName:     resp.CommonName,
-            DNSNames:       "", // store as JSON string if needed; helper functions exist in db package
+            DNSNames:       payload.DNSNames,
             Serial:         resp.Serial,
             Status:         "active",
-            CertificatePEM: sql.NullString{String: resp.CertificatePEM, Valid: resp.CertificatePEM != ""},
-            CAChainPEM:     sql.NullString{String: resp.CABundlePEM, Valid: resp.CABundlePEM != ""},
+            CertificatePEM: resp.CertificatePEM,
+            CAChainPEM:     resp.CABundlePEM,
             NotBefore:      parseTimeOrNow(resp.NotBefore),
             NotAfter:       parseTimeOrNow(resp.NotAfter),
         }
-        // Note: DNSNames storage left as empty string here; callers can use db.StringArrayToJSON to set DNSNames if desired.
-        if err := database.CreateCertificate(ctx, c); err != nil {
+
+        // CreateCertificate returns (id, error)
+        if _, err := database.CreateCertificate(ctx, c); err != nil {
             logger.Printf("warning: failed to persist certificate metadata: %v", err)
             // continue; we still return the issued material to the caller
         }
