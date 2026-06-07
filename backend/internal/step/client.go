@@ -3,6 +3,7 @@ package step
 import (
     "bytes"
     "context"
+    "crypto/tls"
     "encoding/json"
     "errors"
     "fmt"
@@ -13,12 +14,11 @@ import (
     "strings"
     "sync"
     "time"
-    "crypto/tls"
 )
 
 // -----------------------------
 // Canonical server API paths (Smallstep step-ca server API)
-// Centralized here so změna cesty je na jednom místě.
+// Centralized here so change is in one place.
 // -----------------------------
 const (
     pathProvisioners        = "/provisioners"
@@ -31,6 +31,73 @@ const (
     pathVersion             = "/version"
     pathHealth              = "/health"
 )
+
+// -----------------------------
+// API types used by client and main
+// -----------------------------
+
+// APIError represents an error returned by step-ca in JSON form.
+type APIError struct {
+    Code    int    `json:"code,omitempty"`
+    Message string `json:"message,omitempty"`
+}
+
+func (e *APIError) Error() string {
+    if e.Message != "" {
+        return e.Message
+    }
+    return fmt.Sprintf("step api error: code=%d", e.Code)
+}
+
+// Provisioner represents a provisioner object returned by step-ca.
+type Provisioner struct {
+    Name           string   `json:"name"`
+    Type           string   `json:"type"`
+    JWK            string   `json:"jwk,omitempty"`
+    ACMEDirectories []string `json:"acme_directories,omitempty"`
+}
+
+// IssueCertificateRequest is the minimal request shape used by the backend.
+type IssueCertificateRequest struct {
+    CommonName   string   `json:"common_name,omitempty"`
+    DNSNames     []string `json:"dns_names,omitempty"`
+    NotAfterDays int      `json:"not_after_days,omitempty"`
+    CSRPEM       string   `json:"csr,omitempty"` // optional: if provided, CA will sign CSR
+}
+
+// IssueCertificateResponse is the minimal response shape we expect from step-ca /sign.
+type IssueCertificateResponse struct {
+    ID             string `json:"id,omitempty"`
+    CommonName     string `json:"common_name,omitempty"`
+    Serial         string `json:"serial,omitempty"`
+    CertificatePEM string `json:"crt,omitempty"`
+    KeyPEM         string `json:"key,omitempty"`
+    CABundlePEM    string `json:"chain,omitempty"`
+    NotBefore      string `json:"not_before,omitempty"`
+    NotAfter       string `json:"not_after,omitempty"`
+}
+
+// SignCSRRequest / SignCSRResponse (kept for completeness)
+type SignCSRRequest struct {
+    CSRPEM      string `json:"csr"`
+    NotAfterDays int   `json:"not_after_days,omitempty"`
+}
+type SignCSRResponse struct {
+    CertificatePEM string `json:"crt,omitempty"`
+    Serial         string `json:"serial,omitempty"`
+    NotBefore      string `json:"not_before,omitempty"`
+    NotAfter       string `json:"not_after,omitempty"`
+}
+
+// RevokeResponse minimal shape
+type RevokeResponse struct {
+    Serial string `json:"serial,omitempty"`
+    Status string `json:"status,omitempty"`
+}
+
+// -----------------------------
+// Step client implementation
+// -----------------------------
 
 // StepClient is a simple HTTP client for communicating with step-ca server API.
 // It is safe for concurrent use.
@@ -93,9 +160,9 @@ func NewClient(cfg Config) (*StepClient, error) {
 }
 
 // buildURL joins base URL with path and optional query values.
-func (c *StepClient) buildURL(path string, q url.Values) string {
+func (c *StepClient) buildURL(p string, q url.Values) string {
     u := *c.baseURL
-    u.Path = strings.TrimRight(u.Path, "/") + "/" + strings.TrimLeft(path, "/")
+    u.Path = strings.TrimRight(u.Path, "/") + "/" + strings.TrimLeft(p, "/")
     u.RawQuery = q.Encode()
     return u.String()
 }
@@ -120,8 +187,7 @@ func (c *StepClient) doRequest(ctx context.Context, method, path string, query u
     }
     req.Header.Set("Accept", "application/json")
 
-    // merge headers: first client-level (if any) then per-request
-    // Note: Config.Headers are not stored on client in this implementation; add if needed.
+    // merge headers: client-level (Config.Headers) are not stored currently; merge per-request headers
     for k, v := range headers {
         req.Header.Set(k, v)
     }
@@ -159,8 +225,6 @@ func (c *StepClient) doRequest(ctx context.Context, method, path string, query u
 
 // ValidateServer performs lightweight checks against the step-ca server API.
 // It calls /version and /provisioners to verify the server is reachable and responds.
-// Returns nil on success or an error describing the first failure.
-// Callers (e.g., main startup) should log returned error to runtime logs.
 func (c *StepClient) ValidateServer(ctx context.Context) error {
     // Check version
     var ver map[string]interface{}
@@ -170,14 +234,13 @@ func (c *StepClient) ValidateServer(ctx context.Context) error {
         if err2 := c.doRequest(ctx, http.MethodGet, pathHealth, nil, nil, &health, nil); err2 != nil {
             return fmt.Errorf("step: version/health check failed: version err: %v; health err: %v", err, err2)
         }
-    } 
+    }
 
-    // Check provisioners endpoint (admin API may require auth; if 401/403 returned, return that error)
+    // Check provisioners endpoint (may require auth; return error so caller can log)
     var provResp struct {
         Items []Provisioner `json:"items"`
     }
     if err := c.doRequest(ctx, http.MethodGet, pathProvisioners, nil, nil, &provResp, nil); err != nil {
-        // If server returns 404 for provisioners, it may be a minimal server build; still return error so caller can log.
         return fmt.Errorf("step: provisioners endpoint check failed: %w", err)
     }
     return nil
@@ -263,15 +326,11 @@ func (c *StepClient) SelectProvisioner(ctx context.Context, name string, secret 
 // -----------------------------
 
 // IssueCertificate requests a new certificate. Uses canonical /sign endpoint.
-// If req.CommonName is provided and req.DNSNames, we construct a subject payload.
-// If caller provides a CSR (via req.CSRPEM in SignCSRRequest style), prefer CSR.
 func (c *StepClient) IssueCertificate(ctx context.Context, req IssueCertificateRequest, secret string) (*IssueCertificateResponse, error) {
     payload := map[string]interface{}{}
-    // If caller provided NotAfterDays include it
     if req.NotAfterDays > 0 {
         payload["not_after_days"] = req.NotAfterDays
     }
-    // If DNSNames or CommonName provided, construct subject
     if req.CommonName != "" || len(req.DNSNames) > 0 {
         subject := map[string]interface{}{}
         if req.CommonName != "" {
@@ -281,6 +340,9 @@ func (c *StepClient) IssueCertificate(ctx context.Context, req IssueCertificateR
             subject["dns_names"] = req.DNSNames
         }
         payload["subject"] = subject
+    }
+    if req.CSRPEM != "" {
+        payload["csr"] = req.CSRPEM
     }
     if secret != "" {
         payload["secret"] = secret
