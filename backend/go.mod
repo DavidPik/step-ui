@@ -5,6 +5,7 @@ go 1.22
 require (
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-jose/go-jose/v3 v3.0.5
+	github.com/google/uuid v1.6.0
 	github.com/gorilla/mux v1.8.0
 	github.com/mattn/go-sqlite3 v1.14.22
 )
