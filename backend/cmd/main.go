@@ -2,12 +2,15 @@ package main
 
 import (
     "context"
+    "crypto/tls"
+    "crypto/x509"
     "encoding/json"
     "errors"
     "flag"
     "fmt"
     "log"
     "net/http"
+    "net/url"
     "os"
     "os/signal"
     "strings"
@@ -21,14 +24,22 @@ import (
 )
 
 // NOTE: adjust module import paths above to match your go.mod module path.
-// The manifest expects backend/internal/db and backend/step packages.
+// The manifest expects backend/internal/db and backend/internal/step packages.
 
 const (
     envDBDSN           = "DB_DSN"
     envDatabaseDSN     = "DATABASE_DSN"
+    envDBUser          = "DB_USER"
+    envDBPass          = "DB_PASS"
+    envDBHost          = "DB_HOST"
+    envDBPort          = "DB_PORT"
+    envDBName          = "DB_NAME"
+
     envStepURL         = "STEP_CA_URL"
     envStepInsecure    = "STEP_INSECURE_SKIP_VERIFY"
     envStepTimeout     = "STEP_TIMEOUT_SECONDS"
+    envStepRootCert    = "STEP_CA_ROOT_CERT"
+
     envListenAddr      = "LISTEN_ADDR"
     defaultListen      = "0.0.0.0:8080"
     defaultStepTimeout = 10
@@ -49,6 +60,37 @@ func main() {
     if dsn == "" {
         dsn = strings.TrimSpace(os.Getenv(envDatabaseDSN))
     }
+
+    // If DSN still empty, try to build it from DB_USER/DB_PASS/DB_HOST/DB_PORT/DB_NAME
+    if dsn == "" {
+        user := strings.TrimSpace(os.Getenv(envDBUser))
+        pass := strings.TrimSpace(os.Getenv(envDBPass))
+        host := strings.TrimSpace(os.Getenv(envDBHost))
+        port := strings.TrimSpace(os.Getenv(envDBPort))
+        name := strings.TrimSpace(os.Getenv(envDBName))
+
+        if port == "" {
+            port = "3306"
+        }
+
+        if user != "" && host != "" && name != "" {
+            escUser := url.QueryEscape(user)
+            escPass := url.QueryEscape(pass)
+            // Build MySQL/MariaDB DSN: user:pass@tcp(host:port)/dbname?parseTime=true&multiStatements=true
+            dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?parseTime=true&multiStatements=true",
+                escUser, escPass, host, port, name)
+        }
+    }
+
+    // Final validation: if still empty or obviously invalid, fail with clear message
+    if dsn == "" {
+        logger.Fatal("DB_DSN or DATABASE_DSN or DB_USER+DB_HOST+DB_NAME must be provided")
+    }
+    // Basic DSN sanity check for MySQL-like DSN (very small heuristic)
+    if !strings.HasPrefix(dsn, "file:") && !strings.Contains(dsn, "@tcp(") {
+        logger.Fatalf("DB DSN does not look like a MySQL/MariaDB DSN: %s\nProvide DB_DSN or DATABASE_DSN, or set DB_USER/DB_PASS/DB_HOST/DB_PORT/DB_NAME", dsn)
+    }
+
     stepURL := strings.TrimSpace(os.Getenv(envStepURL))
     insecure := strings.TrimSpace(os.Getenv(envStepInsecure))
     stepTimeoutSec := defaultStepTimeout
@@ -66,11 +108,46 @@ func main() {
     }
 
     // Validate required envs
-    if dsn == "" {
-        logger.Fatal("DB_DSN or DATABASE_DSN is required")
-    }
     if stepURL == "" {
         logger.Fatal("STEP_CA_URL is required")
+    }
+
+    // Build HTTP client for step-ca using optional CA bundle and InsecureSkipVerify
+    var httpClient *http.Client
+    caBundlePath := strings.TrimSpace(os.Getenv(envStepRootCert))
+    if caBundlePath != "" {
+        pemData, err := os.ReadFile(caBundlePath)
+        if err != nil {
+            logger.Fatalf("failed to read %s: %v", envStepRootCert, err)
+        }
+        pool := x509.NewCertPool()
+        if !pool.AppendCertsFromPEM(pemData) {
+            logger.Fatalf("failed to parse certificates from %s", caBundlePath)
+        }
+        tlsCfg := &tls.Config{
+            RootCAs: pool,
+        }
+        if strings.EqualFold(insecure, "true") || insecure == "1" {
+            tlsCfg.InsecureSkipVerify = true
+        }
+        transport := &http.Transport{
+            TLSClientConfig: tlsCfg,
+        }
+        httpClient = &http.Client{
+            Transport: transport,
+            Timeout:   time.Duration(stepTimeoutSec) * time.Second,
+        }
+    } else {
+        // No CA bundle provided: still honor InsecureSkipVerify if explicitly set (debug only)
+        tlsCfg := &tls.Config{}
+        if strings.EqualFold(insecure, "true") || insecure == "1" {
+            tlsCfg.InsecureSkipVerify = true
+        }
+        transport := &http.Transport{TLSClientConfig: tlsCfg}
+        httpClient = &http.Client{
+            Transport: transport,
+            Timeout:   time.Duration(stepTimeoutSec) * time.Second,
+        }
     }
 
     // Initialize Step client
@@ -78,6 +155,7 @@ func main() {
         BaseURL:            stepURL,
         Timeout:            time.Duration(stepTimeoutSec) * time.Second,
         InsecureSkipVerify: strings.EqualFold(insecure, "true") || insecure == "1",
+        HTTPClient:         httpClient, // předáváme klienta, internal/step musí toto pole použít
     }
     stepClient, err := step.NewClient(stepCfg)
     if err != nil {
