@@ -2,52 +2,52 @@ package step
 
 // APIError represents an error returned by step-ca server API.
 type APIError struct {
-    Code    int    `json:"code,omitempty"`
-    Message string `json:"message,omitempty"`
+    Code    int    `json:"code"`
+    Message string `json:"message"`
 }
 
-func (e *APIError) Error() string {
-    return e.Message
-}
-
-// Provisioner represents a CA provisioner.
+// Provisioner represents a provisioner object returned by step-ca.
 type Provisioner struct {
-    Name            string   `json:"name"`
-    Type            string   `json:"type"`
-    ACMEDirectories []string `json:"acme_directories,omitempty"`
+    Name           string   `json:"name"`
+    Type           string   `json:"type"`
+    JWK            string   `json:"jwk"`
+    ACMEDirectories []string `json:"acme_directories"`
 }
 
-// IssueCertificateRequest represents a request to issue a certificate.
+// IssueCertificateRequest is the minimal request shape used by the backend.
 type IssueCertificateRequest struct {
-    CommonName    string   `json:"common_name,omitempty"`
-    DNSNames      []string `json:"dns_names,omitempty"`
-    NotAfterDays  int      `json:"not_after_days,omitempty"`
+    CommonName   string   `json:"common_name"`
+    DNSNames     []string `json:"dns_names"`
+    NotAfterDays int      `json:"not_after_days"`
+    CSRPEM       string   `json:"csr"` // optional: if provided, CA will sign CSR
 }
 
-// IssueCertificateResponse represents certificate metadata returned by step-ca.
+// IssueCertificateResponse is the minimal response shape we expect from step-ca /sign.
 type IssueCertificateResponse struct {
-    ID            string `json:"id"`
-    Serial        string `json:"serial"`
-    CommonName    string `json:"common_name"`
+    ID             string `json:"id"`
+    CommonName     string `json:"common_name"`
+    Serial         string `json:"serial"`
     CertificatePEM string `json:"crt"`
-    CABundlePEM    string `json:"ca"`
+    KeyPEM         string `json:"key"`
+    CABundlePEM    string `json:"chain"`
     NotBefore      string `json:"not_before"`
     NotAfter       string `json:"not_after"`
 }
 
-// SignCSRRequest represents a CSR signing request.
+// SignCSRRequest / SignCSRResponse (kept for completeness)
 type SignCSRRequest struct {
-    CSRPEM       string `json:"csr"`
-    NotAfterDays int    `json:"not_after_days,omitempty"`
+    CSRPEM      string `json:"csr"`
+    NotAfterDays int   `json:"not_after_days"`
 }
-
-// SignCSRResponse represents a signed certificate returned by step-ca.
 type SignCSRResponse struct {
     CertificatePEM string `json:"crt"`
-    CABundlePEM    string `json:"ca"`
+    Serial         string `json:"serial"`
+    NotBefore      string `json:"not_before"`
+    NotAfter       string `json:"not_after"`
 }
 
-// RevokeResponse represents a revocation response.
+// RevokeResponse minimal shape
 type RevokeResponse struct {
+    Serial string `json:"serial"`
     Status string `json:"status"`
 }
