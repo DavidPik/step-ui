@@ -54,27 +54,3 @@ type AuditEvent struct {
     Details   string    `json:"details,omitempty"`
     IP        string    `json:"ip,omitempty"`
 }
-
-// -----------------------------
-// Helper functions for JSON fields
-// -----------------------------
-// Note: db.go expects helper functions named marshalStringArray / unmarshalStringArray.
-
-func marshalStringArray(a []string) (string, error) {
-    if a == nil {
-        return "[]", nil
-    }
-    b, err := json.Marshal(a)
-    return string(b), err
-}
-
-func unmarshalStringArray(s string) ([]string, error) {
-    if s == "" {
-        return []string{}, nil
-    }
-    var out []string
-    if err := json.Unmarshal([]byte(s), &out); err != nil {
-        return nil, err
-    }
-    return out, nil
-}
