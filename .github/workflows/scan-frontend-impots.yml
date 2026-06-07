@@ -1,0 +1,127 @@
+name: Scan Frontend Imports
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'frontend/**'
+      - 'src/**'
+      - 'package.json'
+      - 'tsconfig.json'
+      - 'next.config.js'
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install grep and jq
+        run: sudo apt-get update && sudo apt-get install -y ripgrep jq
+
+      - name: Copy scan script
+        run: |
+          mkdir -p .github/scripts
+          cat > .github/scripts/scan-imports.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+ROOT="${1:-.}"
+OUT="${2:-import-scan.json}"
+
+# file globs to scan (adjust if your frontend lives in a different folder)
+GLOBS=("src/**/*.ts" "src/**/*.tsx" "src/**/*.js" "src/**/*.jsx" "frontend/src/**/*.ts" "frontend/src/**/*.tsx")
+
+# regex to capture import lines and dynamic imports
+IMPORT_RE='^\s*(import|export)\b.*from\s+[\'"]([^\'"]+)[\'"]|^\s*import\([\'"]([^\'"]+)[\'"]\)'
+
+results=()
+
+for g in "${GLOBS[@]}"; do
+  while IFS= read -r -d '' file; do
+    # extract import lines
+    while IFS= read -r line; do
+      # capture module path
+      if [[ $line =~ from[[:space:]]+[\'\"]([^\'\"]+)[\'\"] ]]; then
+        mod="${BASH_REMATCH[1]}"
+      elif [[ $line =~ import\([\'\"]([^\'\"]+)[\'\"]\) ]]; then
+        mod="${BASH_REMATCH[1]}"
+      else
+        continue
+      fi
+
+      # heuristics: report alias imports and bare module imports that start with @ or are relative but suspicious
+      report=false
+      reason=""
+
+      if [[ "$mod" == @/* || "$mod" == @* ]]; then
+        report=true
+        reason="alias-@"
+      elif [[ "$mod" == /* || "$mod" == ../* || "$mod" == ./* ]]; then
+        # relative import, usually fine; skip unless it points outside src
+        # check if target exists
+        target="$(dirname "$file")/$mod"
+        # try with .ts .tsx .js .jsx /index variants
+        found=false
+        for ext in "" ".ts" ".tsx" ".js" ".jsx" "/index.ts" "/index.tsx" "/index.js" "/index.jsx"; do
+          if [ -e "${target}${ext}" ]; then
+            found=true
+            break
+          fi
+        done
+        if [ "$found" = false ]; then
+          report=true
+          reason="missing-relative"
+        fi
+      else
+        # bare module or package path, check node_modules presence
+        if ! node -e "try{require.resolve('$mod'); console.log('ok');}catch(e){process.exit(2)}" >/dev/null 2>&1; then
+          report=true
+          reason="missing-package"
+        fi
+      fi
+
+      if [ "$report" = true ]; then
+        results+=("$(jq -n --arg f "$file" --arg l "$line" --arg m "$mod" --arg r "$reason" '{file:$f, line:$l, module:$m, reason:$r}')")
+      fi
+    done < <(rg --no-line-number --line-number --hidden --multiline --no-ignore -n --pcre2 "^\s*(import|export).*from\s+['\"][^'\"]+['\"]|^\s*import\(['\"][^'\"]+['\"]\)" "$file" || true)
+  done < <(bash -c "shopt -s globstar nullglob; for f in $g; do printf '%s\0' \"\$f\"; done")
+done
+
+# write JSON array
+printf '%s\n' "${results[@]}" | jq -s '.' > "$OUT"
+
+# also print a human readable summary
+echo "=== Import scan summary ==="
+jq -r '.[] | "\(.file): \(.module) [\(.reason)]\n  -> \(.line)"' "$OUT" || true
+
+echo "Wrote results to $OUT"
+EOF
+          chmod +x .github/scripts/scan-imports.sh
+
+      - name: Install frontend deps for resolution checks
+        working-directory: .
+        run: |
+          # install only if package.json exists in repo root or frontend folder
+          if [ -f package.json ]; then npm ci --no-audit --no-fund; fi
+          if [ -f frontend/package.json ]; then (cd frontend && npm ci --no-audit --no-fund); fi
+
+      - name: Run import scanner
+        run: |
+          .github/scripts/scan-imports.sh . frontend-imports.json
+
+      - name: Upload results
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-import-scan
+          path: frontend-imports.json
