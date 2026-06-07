@@ -32,62 +32,30 @@ jobs:
           sudo apt-get update -y
           sudo apt-get install -y ripgrep jq
 
-      - name: Create scan script
+      - name: Write scanner script (safe via base64)
         run: |
           mkdir -p .github/scripts
-          printf '%s\n' '#!/usr/bin/env bash' \
-          'set -euo pipefail' \
-          'ROOT="${1:-.}"' \
-          'OUT="${2:-import-scan.json}"' \
-          '' \
-          'GLOBS=("src/**/*.ts" "src/**/*.tsx" "src/**/*.js" "src/**/*.jsx" "frontend/src/**/*.ts" "frontend/src/**/*.tsx")' \
-          '' \
-          'results=()' \
-          '' \
-          'shopt -s globstar nullglob' \
-          'for g in "${GLOBS[@]}"; do' \
-          '  for file in $g; do' \
-          '    # extract import lines using ripgrep' \
-          '    while IFS= read -r line; do' \
-          '      mod=""' \
-          '      if [[ $line =~ from[[:space:]]+[\'\"]([^\'\"]+)[\'\"] ]]; then' \
-          '        mod="${BASH_REMATCH[1]}"' \
-          '      elif [[ $line =~ import\([\'\"]([^\'\"]+)[\'\"]\) ]]; then' \
-          '        mod="${BASH_REMATCH[1]}"' \
-          '      else' \
-          '        continue' \
-          '      fi' \
-          '' \
-          '      report=false' \
-          '      reason=""' \
-          '' \
-          '      if [[ "$mod" == @/* || "$mod" == @* ]]; then' \
-          '        report=true; reason="alias-@"' \
-          '      elif [[ "$mod" == /* || "$mod" == ../* || "$mod" == ./* ]]; then' \
-          '        target="$(dirname "$file")/$mod"' \
-          '        found=false' \
-          '        for ext in "" ".ts" ".tsx" ".js" ".jsx" "/index.ts" "/index.tsx" "/index.js" "/index.jsx"; do' \
-          '          if [ -e "${target}${ext}" ]; then found=true; break; fi' \
-          '        done' \
-          '        if [ "$found" = false ]; then report=true; reason="missing-relative"; fi' \
-          '      else' \
-          '        if ! node -e "try{require.resolve('\''$mod'\''); process.exit(0);}catch(e){process.exit(2)}" >/dev/null 2>&1; then' \
-          '          report=true; reason="missing-package"' \
-          '        fi' \
-          '      fi' \
-          '' \
-          '      if [ "$report" = true ]; then' \
-          '        results+=("$(jq -n --arg f "$file" --arg l "$line" --arg m "$mod" --arg r "$reason" '\''{file:$f, line:$l, module:$m, reason:$r}'\'')")' \
-          '      fi' \
-          '    done < <(rg --no-line-number --hidden --multiline --no-ignore -n --pcre2 "^\s*(import|export).*from\s+[\'\"][^\'\"]+[\'\"]|^\s*import\([\'\"][^\'\"]+[\'\"]\)" "$file" || true)' \
-          '  done' \
-          'done' \
-          '' \
-          'printf "%s\n" "${results[@]}" | jq -s "." > "$OUT"' \
-          'echo "=== Import scan summary ==="' \
-          'jq -r '\''.[] | "\(.file): \(.module) [\(.reason)]\n  -> \(.line)"'\'' "$OUT" || true' \
-          'echo "Wrote results to $OUT"' \
-          > .github/scripts/scan-imports.sh
+          cat > .github/scripts/scan-imports.sh.base64 <<'B64'
+IyEvdXNyL2Jpbi9lbnYgYmFzaAptc2V0IC1ldW8gcGlwZWZhaWwKUk9PVC0iLiIKT1VULS1pbXBvcnQ9ImltcG9ydC1zY2FuLmpzb24iCgpHTE9CUygoInNyYy8qKi8qLnRzIiAi
+c3JjLyoqKi8qLnRzeCIgInNyYy8qKi8qLmpzIiAic3JjLyoqKi8qLmp4IiAiZnJvbnRlbmQvc3JjLyoqKi8qLnRzIiAiZnJvbnRlbmQvc3JjLyoqKi8qLnRzeCIp
+CgpzPSgpCgpzaG9wdCAtcyBnbG9ic3RhciBudWxsbGxnbG9iCgpmb3IgZyBpbiAiJHtHTE9CU1tbXSAqfSI7IGRvCiAgICBmb3IgZmlsZSBpbiAkZyA7IGRvCiAgICAg
+ICMgZXh0cmFjdCBpbXBvcnQgbGluZXMgYnkgaW5zdHJ1bWVudAogICAgICBsaW5lcyQ9KCR7cmd9KQogICAgICB3aGlsZSBJVEY9PSAke2xpbmVzWzBdOyBkbwogICAg
+ICAgICBtb2Q9IiIKICAgICAgICBpZiBbWyAke2xpbmVzWzBdIC1wdGNoICJmcm9tW10iIF0gOyB0aGVuCiAgICAgICAgICBtb2Q9JHtsaW5lcz0kKHN1Yi1zdWJzdHIp
+CiAgICAgICAgICBlbGlmIFtbICRsaW5lcyAtbW9kIC1wdGNoICJpbXBvcnQoW10iIF1dOyB0aGVuCiAgICAgICAgICAgIG1vZD0keyRsaW5lcz0kKHN1Yi1zdWJzdHIp
+CiAgICAgICAgICBlbHNlCiAgICAgICAgICAgIGNvbnRpbnVlCiAgICAgICAgICBmaXJlcG9ydD0iZmFsc2UiCiAgICAgICAgICByZWFzb249IiIKICAgICAgICAgICMg
+aGV1cmlzdGljcyBhbmQgc2VhcmNoCiAgICAgICAgICBpZiBbWyAiJG1vZCIgPT0gQF8vKiB8fCAiJG1vZCIgPT0gQF0gXTsgdGhlbgogICAgICAgICAgICByZXBvcnQ9
+InRydWUiOyByZWFzb249ImFsaWFzLUAiCiAgICAgICAgICBlbGlmIFtbICIkbW9kIiA9PSAvLyB8fCAiJG1vZCIgPT0gLi4vKiB8fCBbICIkbW9kIiA9PSAuLyogXS
+A7IHRoZW4KICAgICAgICAgICAgdGFyZ2V0PSIkKGRpcm5hbWUgIiRmaWxlIikvJG1vZCIKICAgICAgICAgICAgZm91bmQ9ImZhbHNlIgogICAgICAgICAgICBmb3Ig
+ZXh0IGluICIiICJ0cyI7IGRvCiAgICAgICAgICAgICAgZm9yIGV4dCBpbiAiIiAiLnRzIiAiLnRzeCIgIi5qcyIgIi5qc3giICIvaW5kZXgudHMiICIvaW5kZXgudHgi
+OyBkbwogICAgICAgICAgICAgICAgc2V0IC1lICIkdGFyZ2V0JHtleHR9IiAqPi9kZXZudWxsCiAgICAgICAgICAgICAgICBpZiBbIC1lICIkdGFyZ2V0JHtleHR9IiBd
+OyB0aGVuCiAgICAgICAgICAgICAgICAgIGZvdW5kPSJ0cnVlIgogICAgICAgICAgICAgICAgICBicmVhayAKICAgICAgICAgICAgICAgIGZpCiAgICAgICAgICAg
+ICAgZGVuCiAgICAgICAgICAgIGRvCiAgICAgICAgICBlbHNlCiAgICAgICAgICAgICMgYmFyZSBwYWNrYWdlIGNoZWNrCiAgICAgICAgICAgICAgaWYgISBub2RlIC1l
+ICJ0cnkiOyB0aGVuCiAgICAgICAgICAgICAgcmVwb3J0PSJ0cnVlIiAgcmVhc29uPSJtaXNzaW5nLXBhY2thZ2UiCiAgICAgICAgICBmaQogICAgICAgICAgICBpZiBb
+ICIkcmVwb3J0IiA9PSAidHJ1ZSJdOyB0aGVuCiAgICAgICAgICAgICAgcmVzdWx0cy49KCR7ZmlsZX0pCiAgICAgICAgICBmaQogICAgICAgICAgICBkb25lCiAgICAg
+ICAgICBkb25lCiAgICAgICAgZGVuCiAgICBkZW5vCiAgZG9uZQpzaG9wdCAtdSBnbG9ic3RhciBudWxsbGxnbG9iCgpwcmludGYgIiR7cmVzdWx0c31cbiIgfCBqcXMg
+LXMgc3RkIC4+ICIkT1VUIiAKZWNobyAiV3JvdGUgcmVzdWx0cyB0byAkT1VUIg==
+B64
+          base64 -d .github/scripts/scan-imports.sh.base64 > .github/scripts/scan-imports.sh
           chmod +x .github/scripts/scan-imports.sh
 
       - name: Install frontend deps (if present)
