@@ -62,6 +62,11 @@ type Config struct {
     Timeout            time.Duration
     InsecureSkipVerify bool
     Headers            map[string]string
+
+    // Optional HTTP client provided by caller (main.go). If non-nil, it will be used
+    // for all requests. If nil, NewClient will create a default http.Client using
+    // Timeout and InsecureSkipVerify.
+    HTTPClient *http.Client
 }
 
 // NewClient creates a new StepClient configured with the provided Config.
@@ -80,6 +85,19 @@ func NewClient(cfg Config) (*StepClient, error) {
         timeout = 10 * time.Second
     }
 
+    // If caller provided an HTTP client, use it as-is (caller is responsible for TLS config and timeout).
+    if cfg.HTTPClient != nil {
+        // Ensure the provided client has a timeout; if not, set it to the configured timeout.
+        if cfg.HTTPClient.Timeout == 0 {
+            cfg.HTTPClient.Timeout = timeout
+        }
+        return &StepClient{
+            baseURL:    parsed,
+            httpClient: cfg.HTTPClient,
+        }, nil
+    }
+
+    // Otherwise create a default transport and client (backwards-compatible behavior).
     tr := &http.Transport{
         Proxy: http.ProxyFromEnvironment,
         DialContext: (&net.Dialer{
