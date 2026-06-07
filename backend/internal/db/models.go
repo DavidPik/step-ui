@@ -1,27 +1,22 @@
 package db
 
 import (
-    "database/sql"
     "encoding/json"
     "time"
 )
 
-type Database struct {
-    conn *sql.DB
-}
-
 // -----------------------------
-// Data models
+// Data models (compatible with db.go usage)
 // -----------------------------
 
 // Provisioner represents a provisioner configured via UI.
 // Note: provisioner secret is NOT persisted.
 type Provisioner struct {
-    Name             string    `db:"name"`
-    Type             string    `db:"type"`
-    JWK              string    `db:"jwk"`
-    ACMEDirectories  []string  `db:"acme_directories"` // JSON array stored as text
-    CreatedAt        time.Time `db:"created_at"`
+    Name            string    `json:"name"`
+    Type            string    `json:"type"`
+    JWK             string    `json:"jwk,omitempty"`
+    ACMEDirectories []string  `json:"acme_directories,omitempty"`
+    CreatedAt       time.Time `json:"created_at,omitempty"`
 }
 
 type ProvisionerStatus struct {
@@ -30,52 +25,50 @@ type ProvisionerStatus struct {
 }
 
 type CASettings struct {
-    ProvisionerName  string   `json:"provisioner_name"`
-    ACMEDirectories  []string `json:"acme_directories"`
-    UpdatedAt        time.Time `json:"updated_at"`
+    ProvisionerName string    `json:"provisioner_name,omitempty"`
+    ACMEDirectories []string  `json:"acme_directories,omitempty"`
+    UpdatedAt       time.Time `json:"updated_at,omitempty"`
 }
 
 // Certificate represents a certificate record.
 type Certificate struct {
-    ID             string         `db:"id"`
-    CommonName     string         `db:"common_name"`
-    DNSNames       string         `db:"dns_names"` // JSON array as text
-    Serial         string         `db:"serial"`
-    NotBefore      time.Time      `db:"not_before"`
-    NotAfter       time.Time      `db:"not_after"`
-    CertificatePEM sql.NullString `db:"certificate_pem"`
-    CAChainPEM     sql.NullString `db:"ca_chain_pem"`
-    CreatedAt      time.Time      `db:"created_at"`
+    ID             string    `json:"id"`
+    CommonName     string    `json:"common_name"`
+    DNSNames       []string  `json:"dns_names,omitempty"`
+    Serial         string    `json:"serial,omitempty"`
+    NotBefore      time.Time `json:"not_before,omitempty"`
+    NotAfter       time.Time `json:"not_after,omitempty"`
+    CertificatePEM string    `json:"certificate_pem,omitempty"`
+    PrivateKeyPEM  string    `json:"private_key_pem,omitempty"`
+    CAChainPEM     string    `json:"ca_chain_pem,omitempty"`
+    Status         string    `json:"status,omitempty"`
+    CreatedAt      time.Time `json:"created_at,omitempty"`
 }
 
 // AuditEvent logs actions performed in the system.
 type AuditEvent struct {
-    ID        int64     `db:"id"`
-    Timestamp time.Time `db:"timestamp"`
-    Action    string    `db:"action"`
-    User      string    `db:"user"`
-    Details   string    `db:"details"`
-    IP        string    `db:"ip"`
+    ID        int64     `json:"id,omitempty"`
+    Timestamp time.Time `json:"timestamp,omitempty"`
+    Action    string    `json:"action,omitempty"`
+    User      string    `json:"user,omitempty"`
+    Details   string    `json:"details,omitempty"`
+    IP        string    `json:"ip,omitempty"`
 }
 
 // -----------------------------
-// Helper types for JSON fields
+// Helper functions for JSON fields
 // -----------------------------
+// Note: db.go expects helper functions named marshalStringArray / unmarshalStringArray.
 
-// StringArrayToJSON converts string slice to JSON string for storage.
-func StringArrayToJSON(arr []string) (string, error) {
-    if arr == nil {
+func marshalStringArray(a []string) (string, error) {
+    if a == nil {
         return "[]", nil
     }
-    b, err := json.Marshal(arr)
-    if err != nil {
-        return "", err
-    }
-    return string(b), nil
+    b, err := json.Marshal(a)
+    return string(b), err
 }
 
-// JSONToStringArray converts stored JSON string to []string.
-func JSONToStringArray(s string) ([]string, error) {
+func unmarshalStringArray(s string) ([]string, error) {
     if s == "" {
         return []string{}, nil
     }
