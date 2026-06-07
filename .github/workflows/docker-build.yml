@@ -1,5 +1,7 @@
 name: Build and Publish Docker Images
+###############################################
 # Build image for Backend and for Frontend
+###############################################
 on:
   push:
     branches: [ "master" ]
