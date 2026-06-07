@@ -11,6 +11,11 @@ import (
     "github.com/google/uuid"
 )
 
+// Database wraps sql.DB and is the receiver for DB methods.
+type Database struct {
+    conn *sql.DB
+}
+
 // InitDB opens DB and ensures schema exists.
 func InitDB(ctx context.Context, dsn string) (*Database, error) {
     // Expect DSN like: user:pass@tcp(host:3306)/dbname?parseTime=true&loc=UTC
@@ -227,15 +232,28 @@ func (db *Database) ListCertificates(ctx context.Context) ([]Certificate, error)
         var notBefore sql.NullTime
         var notAfter sql.NullTime
         var created sql.NullTime
+        var certPEM sql.NullString
+        var privKey sql.NullString
+        var chain sql.NullString
+
         if err := rows.Scan(
             &c.ID, &c.CommonName, &dns, &c.Serial,
             &notBefore, &notAfter,
-            &c.CertificatePEM, &c.PrivateKeyPEM, &c.CAChainPEM, &c.Status, &created,
+            &certPEM, &privKey, &chain, &c.Status, &created,
         ); err != nil {
             return nil, err
         }
         if dns.Valid {
             _ = json.Unmarshal([]byte(dns.String), &c.DNSNames)
+        }
+        if certPEM.Valid {
+            c.CertificatePEM = certPEM.String
+        }
+        if privKey.Valid {
+            c.PrivateKeyPEM = privKey.String
+        }
+        if chain.Valid {
+            c.CAChainPEM = chain.String
         }
         if notBefore.Valid {
             c.NotBefore = notBefore.Time
@@ -265,11 +283,14 @@ func (db *Database) GetCertificate(ctx context.Context, id string) (*Certificate
     var notBefore sql.NullTime
     var notAfter sql.NullTime
     var created sql.NullTime
+    var certPEM sql.NullString
+    var privKey sql.NullString
+    var chain sql.NullString
 
     if err := row.Scan(
         &c.ID, &c.CommonName, &dns, &c.Serial,
         &notBefore, &notAfter,
-        &c.CertificatePEM, &c.PrivateKeyPEM, &c.CAChainPEM, &c.Status, &created,
+        &certPEM, &privKey, &chain, &c.Status, &created,
     ); err != nil {
         if errors.Is(err, sql.ErrNoRows) {
             return nil, nil
@@ -278,6 +299,15 @@ func (db *Database) GetCertificate(ctx context.Context, id string) (*Certificate
     }
     if dns.Valid {
         _ = json.Unmarshal([]byte(dns.String), &c.DNSNames)
+    }
+    if certPEM.Valid {
+        c.CertificatePEM = certPEM.String
+    }
+    if privKey.Valid {
+        c.PrivateKeyPEM = privKey.String
+    }
+    if chain.Valid {
+        c.CAChainPEM = chain.String
     }
     if notBefore.Valid {
         c.NotBefore = notBefore.Time
