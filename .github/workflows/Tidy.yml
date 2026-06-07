@@ -12,20 +12,59 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
 
+      - name: Configure GOPROXY
+        run: |
+          # Use official proxy first, fallback to direct
+          go env -w GOPROXY=https://proxy.golang.org,direct
+          go env -w GOSUMDB=sum.golang.org
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Ensure critical modules (avoid unknown revision errors)
+        working-directory: backend
+        run: |
+          # Try to fetch the MySQL driver (adjust to a fixed version if you prefer)
+          # If you prefer a pinned version, replace @latest with @v1.6.0 (or desired tag).
+          set -e
+          go get github.com/go-sql-driver/mysql@latest || true
+          # Optionally update other known modules here:
+          # go get github.com/google/uuid@latest || true
+
       - name: Run go mod tidy
         working-directory: backend
-        run: go mod tidy
+        run: |
+          set -e
+          go mod tidy
+
+      - name: Show go.mod and go.sum (for debugging)
+        if: failure()
+        working-directory: backend
+        run: |
+          echo "---- go.mod ----"
+          sed -n '1,200p' go.mod || true
+          echo "---- go.sum (head) ----"
+          head -n 200 go.sum || true
 
       - name: Commit changes
+        working-directory: backend
         run: |
           git config --global user.name "github-actions"
           git config --global user.email "github-actions@github.com"
-          git add backend/go.mod backend/go.sum
-          git commit -m "Run go mod tidy" || echo "No changes"
-          git push
+          git add go.mod go.sum || true
+          git diff --staged --quiet || (git commit -m "Run go mod tidy" && git push)
