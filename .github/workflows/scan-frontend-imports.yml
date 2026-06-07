@@ -1,4 +1,4 @@
-name: Scan Frontend Imports
+name: Simple Frontend Import Scan
 
 on:
   workflow_dispatch:
@@ -22,97 +22,38 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '18'
-
-      - name: Install tools
+      - name: Install ripgrep
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y ripgrep jq
+          sudo apt-get install -y ripgrep
 
-      - name: Install frontend deps (if present)
+      - name: Scan for suspicious imports
         run: |
-          if [ -f package.json ]; then npm ci --no-audit --no-fund; fi
-          if [ -f frontend/package.json ]; then (cd frontend && npm ci --no-audit --no-fund); fi
+          OUT=frontend-imports.txt
+          echo "# Suspicious imports scan - generated $(date -u)" > "$OUT"
+          echo "" >> "$OUT"
 
-      - name: Scan imports inline and write JSON
-        run: |
-          set -euo pipefail
-          OUT="frontend-imports.json"
-          echo "[]" > "$OUT"
+          # 1) imports using @ alias (e.g. import x from '@/utils')
+          echo "## Imports using @/ alias" >> "$OUT"
+          rg -n --hidden --glob '!node_modules' "from\s+['\"]@/|import\(['\"]@/" src frontend || true >> "$OUT"
 
-          # globs to scan
-          GLOBS=( "src/**/*.ts" "src/**/*.tsx" "src/**/*.js" "src/**/*.jsx" "frontend/src/**/*.ts" "frontend/src/**/*.tsx" )
+          echo "" >> "$OUT"
 
-          tmp=$(mktemp)
-          jq -n '[]' > "$OUT"
+          # 2) absolute imports starting with / (rare in Next projects)
+          echo "## Absolute imports starting with /" >> "$OUT"
+          rg -n --hidden --glob '!node_modules' "from\s+['\"]/|import\(['\"]/ " src frontend || true >> "$OUT"
 
-          shopt -s globstar nullglob
-          for g in "${GLOBS[@]}"; do
-            for file in $g; do
-              # extract import/export lines
-              rg --no-line-number --hidden --multiline --no-ignore -n --pcre2 "^\s*(import|export).*from\s+['\"][^'\"]+['\"]|^\s*import\(['\"][^'\"]+['\"]\)" "$file" \
-                | while IFS= read -r line; do
-                    # capture module path
-                    if [[ $line =~ from[[:space:]]+[\'\"]([^\'\"]+)[\'\"] ]]; then
-                      mod="${BASH_REMATCH[1]}"
-                    elif [[ $line =~ import\([\'\"]([^\'\"]+)[\'\"]\) ]]; then
-                      mod="${BASH_REMATCH[1]}"
-                    else
-                      continue
-                    fi
+          echo "" >> "$OUT"
 
-                    reason=""
-                    report=false
+          # 3) all import/export lines (for manual inspection)
+          echo "## All import/export lines (for quick scan)" >> "$OUT"
+          rg -n --hidden --glob '!node_modules' "^\s*(import|export).*from\s+['\"][^'\"]+['\"]|^\s*import\(['\"][^'\"]+['\"]\)" src frontend || true >> "$OUT"
 
-                    if [[ "$mod" == @/* || "$mod" == @* ]]; then
-                      report=true
-                      reason="alias-@"
-                    elif [[ "$mod" == /* || "$mod" == ../* || "$mod" == ./* ]]; then
-                      target="$(dirname "$file")/$mod"
-                      found=false
-                      for ext in "" ".ts" ".tsx" ".js" ".jsx" "/index.ts" "/index.tsx" "/index.js" "/index.jsx"; do
-                        if [ -e "${target}${ext}" ]; then
-                          found=true
-                          break
-                        fi
-                      done
-                      if [ "$found" = false ]; then
-                        report=true
-                        reason="missing-relative"
-                      fi
-                    else
-                      # check node resolution (works if node_modules installed)
-                      if ! node -e "try{require.resolve('$mod'); process.exit(0);}catch(e){process.exit(2)}" >/dev/null 2>&1; then
-                        report=true
-                        reason="missing-package"
-                      fi
-                    fi
-
-                    if [ "$report" = true ]; then
-                      jq -n --arg f "$file" --arg l "$line" --arg m "$mod" --arg r "$reason" \
-                        '{file:$f, line:$l, module:$m, reason:$r}' >> "$tmp"
-                    fi
-                done
-            done
-          done
-
-          # combine lines into array (if any)
-          if [ -s "$tmp" ]; then
-            jq -s 'add | . as $a | ($a | map(.))' "$tmp" > "$OUT" || jq -s '.' "$tmp" > "$OUT"
-          else
-            jq -n '[]' > "$OUT"
-          fi
-          rm -f "$tmp"
-
-          echo "=== Import scan summary ==="
-          jq -r '.[] | "\(.file): \(.module) [\(.reason)]\n  -> \(.line)"' "$OUT" || true
+          echo "" >> "$OUT"
           echo "Wrote results to $OUT"
-
+          ls -l "$OUT"
       - name: Upload results
         uses: actions/upload-artifact@v4
         with:
-          name: frontend-import-scan
-          path: frontend-imports.json
+          name: frontend-imports
+          path: frontend-imports.txt
