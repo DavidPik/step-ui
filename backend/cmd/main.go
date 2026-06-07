@@ -25,12 +25,13 @@ import (
 // The manifest expects backend/internal/db and backend/step packages.
 
 const (
-    envDBDSN         = "DB_DSN"
-    envStepURL       = "STEP_CA_URL"
-    envStepInsecure  = "STEP_INSECURE_SKIP_VERIFY"
-    envStepTimeout   = "STEP_TIMEOUT_SECONDS"
-    envListenAddr    = "LISTEN_ADDR"
-    defaultListen    = "0.0.0.0:8080"
+    envDBDSN           = "DB_DSN"
+    envDatabaseDSN     = "DATABASE_DSN"
+    envStepURL         = "STEP_CA_URL"
+    envStepInsecure    = "STEP_INSECURE_SKIP_VERIFY"
+    envStepTimeout     = "STEP_TIMEOUT_SECONDS"
+    envListenAddr      = "LISTEN_ADDR"
+    defaultListen      = "0.0.0.0:8080"
     defaultStepTimeout = 10
 )
 
@@ -44,8 +45,11 @@ func main() {
     // Basic logger to stdout (visible in container logs / Portainer)
     logger := log.New(os.Stdout, "", log.LstdFlags|log.LUTC)
 
-    // Read configuration from env
+    // Read configuration from env (support both DB_DSN and DATABASE_DSN)
     dsn := strings.TrimSpace(os.Getenv(envDBDSN))
+    if dsn == "" {
+        dsn = strings.TrimSpace(os.Getenv(envDatabaseDSN))
+    }
     stepURL := strings.TrimSpace(os.Getenv(envStepURL))
     insecure := strings.TrimSpace(os.Getenv(envStepInsecure))
     stepTimeoutSec := defaultStepTimeout
@@ -64,7 +68,7 @@ func main() {
 
     // Validate required envs
     if dsn == "" {
-        logger.Fatal("DB_DSN is required")
+        logger.Fatal("DB_DSN or DATABASE_DSN is required")
     }
     if stepURL == "" {
         logger.Fatal("STEP_CA_URL is required")
@@ -125,7 +129,8 @@ func main() {
             httpError(w, http.StatusInternalServerError, "failed to list provisioners")
             return
         }
-        writeJSON(w, provs)
+        // frontend expects { items: [...] }
+        writeJSON(w, map[string]interface{}{"items": provs})
     }).Methods(http.MethodGet)
 
     // Provisioner create
@@ -240,7 +245,8 @@ func main() {
             httpError(w, http.StatusInternalServerError, "failed to list certificates")
             return
         }
-        writeJSON(w, certs)
+        // frontend expects { items: [...] }
+        writeJSON(w, map[string]interface{}{"items": certs})
     }).Methods(http.MethodGet)
 
     // Certificate detail
@@ -268,18 +274,18 @@ func main() {
     api.HandleFunc("/certificates", func(w http.ResponseWriter, r *http.Request) {
         ctx := r.Context()
         var payload struct {
-            CommonName string   `json:"common_name"`
-            DNSNames   []string `json:"dns_names"`
-            Secret     string   `json:"secret"`
-            NotAfterDays int    `json:"not_after_days"`
+            CommonName   string   `json:"common_name"`
+            DNSNames     []string `json:"dns_names"`
+            Secret       string   `json:"secret"`
+            NotAfterDays int      `json:"not_after_days"`
         }
         if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
             httpError(w, http.StatusBadRequest, "invalid request body")
             return
         }
         req := step.IssueCertificateRequest{
-            CommonName: payload.CommonName,
-            DNSNames:   payload.DNSNames,
+            CommonName:   payload.CommonName,
+            DNSNames:     payload.DNSNames,
             NotAfterDays: payload.NotAfterDays,
         }
         resp, err := stepClient.IssueCertificate(ctx, req, payload.Secret)
