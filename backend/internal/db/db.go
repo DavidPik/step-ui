@@ -7,7 +7,7 @@ import (
     "errors"
     "time"
 
-    _ "github.com/mattn/go-sqlite3"
+    _ "github.com/go-sql-driver/mysql"
     "github.com/google/uuid"
 )
 
@@ -60,13 +60,15 @@ type CASettings struct {
 
 // InitDB opens DB and ensures schema exists.
 func InitDB(ctx context.Context, dsn string) (*Database, error) {
-    conn, err := sql.Open("sqlite3", dsn)
+    // Expect DSN like: user:pass@tcp(host:3306)/dbname?parseTime=true&loc=UTC
+    conn, err := sql.Open("mysql", dsn)
     if err != nil {
         return nil, err
     }
-    // limit connections for sqlite
-    conn.SetMaxOpenConns(1)
-
+    // Configure pool for MySQL
+    conn.SetMaxOpenConns(25)
+    conn.SetMaxIdleConns(5)
+    conn.SetConnMaxLifetime(5 * time.Minute)
     db := &Database{conn: conn}
 
     if err := db.ensureSchema(ctx); err != nil {
@@ -81,46 +83,47 @@ func (db *Database) Close() error {
 }
 
 func (db *Database) ensureSchema(ctx context.Context) error {
+    // MySQL-compatible DDL. Use TEXT for JSON-like arrays for broad compatibility.
     schema := `
 CREATE TABLE IF NOT EXISTS provisioners (
-    name TEXT PRIMARY KEY,
-    type TEXT NOT NULL,
+    name VARCHAR(255) PRIMARY KEY,
+    type VARCHAR(100) NOT NULL,
     jwk TEXT,
     acme_directories TEXT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS certificates (
-    id TEXT PRIMARY KEY,
-    common_name TEXT NOT NULL,
+    id VARCHAR(64) PRIMARY KEY,
+    common_name VARCHAR(255) NOT NULL,
     dns_names TEXT,
-    serial TEXT,
-    not_before TIMESTAMP,
-    not_after TIMESTAMP,
-    certificate_pem TEXT,
-    private_key_pem TEXT,
-    ca_chain_pem TEXT,
-    status TEXT,
+    serial VARCHAR(255),
+    not_before DATETIME,
+    not_after DATETIME,
+    certificate_pem MEDIUMTEXT,
+    private_key_pem MEDIUMTEXT,
+    ca_chain_pem MEDIUMTEXT,
+    status VARCHAR(50),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS audit_events (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id INT AUTO_INCREMENT PRIMARY KEY,
     timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    action TEXT NOT NULL,
-    user TEXT NOT NULL,
+    action VARCHAR(255) NOT NULL,
+    user VARCHAR(255) NOT NULL,
     details TEXT,
-    ip TEXT
+    ip VARCHAR(100)
 );
 
 CREATE TABLE IF NOT EXISTS ca_settings (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    provisioner_name TEXT,
+    id INT PRIMARY KEY,
+    provisioner_name VARCHAR(255),
     acme_directories TEXT,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-INSERT OR IGNORE INTO ca_settings (id, provisioner_name, acme_directories) VALUES (1, '', '[]');
+INSERT IGNORE INTO ca_settings (id, provisioner_name, acme_directories) VALUES (1, '', '[]');
 `
     _, err := db.conn.ExecContext(ctx, schema)
     return err
