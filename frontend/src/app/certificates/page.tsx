@@ -361,7 +361,8 @@ function RevokeCertificateDialog({
 
   if (!cert) return null;
 
-  async function handleRevoke() {
+  const handleRevoke = async () => {
+    if (!cert) return;
     setLoading(true);
     try {
       await apiClient.revokeCertificate(cert.serial);
