@@ -284,7 +284,7 @@ function CreateProvisionerDialog({
                   <div key={i} className="flex items-center justify-between bg-gray-50 p-2 rounded">
                     <div className="truncate mr-4">{d}</div>
                     <div>
-                      <Button onClick={() => removeAcmeDir(i)} variant="danger">Remove</Button>
+                      <Button onClick={() => removeAcmeDir(i)} className="bg-red-600 hover:bg-red-700">Remove</Button>
                     </div>
                   </div>
                 ))}
