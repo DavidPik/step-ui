@@ -11,53 +11,6 @@ import (
     "github.com/google/uuid"
 )
 
-type Database struct {
-    conn *sql.DB
-}
-
-// Models (kept minimal and compatible with handlers)
-type Provisioner struct {
-    Name            string    `json:"name"`
-    Type            string    `json:"type"`
-    JWK             string    `json:"jwk,omitempty"`
-    ACMEDirectories []string  `json:"acme_directories,omitempty"`
-    CreatedAt       time.Time `json:"created_at,omitempty"`
-}
-
-type ProvisionerStatus struct {
-    Name   string `json:"name"`
-    Status string `json:"status"`
-}
-
-type Certificate struct {
-    ID             string    `json:"id"`
-    CommonName     string    `json:"common_name"`
-    DNSNames       []string  `json:"dns_names,omitempty"`
-    Serial         string    `json:"serial"`
-    NotBefore      time.Time `json:"not_before"`
-    NotAfter       time.Time `json:"not_after"`
-    CertificatePEM string    `json:"certificate_pem,omitempty"`
-    PrivateKeyPEM  string    `json:"private_key_pem,omitempty"`
-    CAChainPEM     string    `json:"ca_chain_pem,omitempty"`
-    Status         string    `json:"status,omitempty"`
-    CreatedAt      time.Time `json:"created_at,omitempty"`
-}
-
-type AuditEvent struct {
-    ID        int64     `json:"id"`
-    Timestamp time.Time `json:"timestamp"`
-    Action    string    `json:"action"`
-    User      string    `json:"user"`
-    Details   string    `json:"details"`
-    IP        string    `json:"ip"`
-}
-
-type CASettings struct {
-    ProvisionerName  string   `json:"provisioner_name,omitempty"`
-    ACMEDirectories  []string `json:"acme_directories,omitempty"`
-    UpdatedAt        time.Time `json:"updated_at,omitempty"`
-}
-
 // InitDB opens DB and ensures schema exists.
 func InitDB(ctx context.Context, dsn string) (*Database, error) {
     // Expect DSN like: user:pass@tcp(host:3306)/dbname?parseTime=true&loc=UTC
