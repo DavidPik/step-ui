@@ -1,16 +1,13 @@
 package db
 
-import (
-    "encoding/json"
-    "time"
-)
+import "time"
 
 // -----------------------------
-// Data models (compatible with db.go usage)
+// Data models (kompatibilní s db.go)
 // -----------------------------
 
-// Provisioner represents a provisioner configured via UI.
-// Note: provisioner secret is NOT persisted.
+// Provisioner reprezentuje provisioner nakonfigurovaný přes UI.
+// Secret se neukládá do DB.
 type Provisioner struct {
     Name            string    `json:"name"`
     Type            string    `json:"type"`
@@ -30,7 +27,7 @@ type CASettings struct {
     UpdatedAt       time.Time `json:"updated_at,omitempty"`
 }
 
-// Certificate represents a certificate record.
+// Certificate reprezentuje záznam o certifikátu.
 type Certificate struct {
     ID             string    `json:"id"`
     CommonName     string    `json:"common_name"`
@@ -45,7 +42,7 @@ type Certificate struct {
     CreatedAt      time.Time `json:"created_at,omitempty"`
 }
 
-// AuditEvent logs actions performed in the system.
+// AuditEvent loguje akce v systému.
 type AuditEvent struct {
     ID        int64     `json:"id,omitempty"`
     Timestamp time.Time `json:"timestamp,omitempty"`
